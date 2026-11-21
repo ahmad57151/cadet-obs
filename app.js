@@ -2,7 +2,7 @@
 /* Cadet Observations — Stage 1
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.4.1';
+const APP_VERSION = '0.4.2';
 const OBS_DEFAULT = [
   'Precis not in possession', 'Writing material not in possession', 'Arriving late', 'Missing from class',
   'Asg not submitted', 'Public speaking not prepared', 'Sleeping in class', 'Not behaving'
@@ -1161,5 +1161,13 @@ document.addEventListener('visibilitychange', () => {
     return;
   }
   render();
-  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js');
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    // Check for a new version every time the app opens; reload once when it takes over.
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((r) => r.update()).catch(() => {});
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController && !reloaded && !U.sheet && !U.dialog) { reloaded = true; location.reload(); }
+    });
+  }
 })();
