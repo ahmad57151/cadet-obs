@@ -2,7 +2,7 @@
 /* Cadet Observations — Stage 1
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.4.3';
+const APP_VERSION = '0.4.4';
 const OBS_DEFAULT = [
   'Precis not in possession', 'Writing material not in possession', 'Arriving late', 'Missing from class',
   'Asg not submitted', 'Public speaking not prepared', 'Sleeping in class', 'Not behaving'
@@ -279,6 +279,7 @@ function viewProfile() {
   const x = S.cadets[U.profile];
   const te = termEntries(x.gc);
   const all = S.entries.filter((e) => e.gc === x.gc).sort((a, b) => b.ts - a.ts);
+  const hf = U.histObs, shown = all.filter((e) => (!hf || e.obs === hf) && (!U.histTerm || e.ts >= termTs()));
   const byType = S.settings.obs.map((o) => [o, te.filter((e) => e.obs === o).length]).filter(([, n]) => n);
   const max = Math.max(1, ...byType.map(([, n]) => n));
   const pend = all.filter((e) => e.status === 'pending').length;
@@ -294,11 +295,21 @@ function viewProfile() {
     <div class="grid3 tiles"><div class="t"><b style="color:${te.length >= 4 ? '#A1271B' : '#1C1C1A'}">${te.length}</b><span>This term</span></div>
     <div class="t"><b>${all.length}</b><span>All time</span></div><div class="t"><b style="color:${pend ? '#7A4300' : '#1C1C1A'}">${pend}</b><span>Pending</span></div></div>
     ${byType.length ? `<span class="label">By type · this term</span><div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:9px">${byType.map(([o, n]) =>
-      `<div class="bar"><span class="n">${esc(o)}</span><span class="track"><span class="fill" style="display:block;width:${Math.round(n / max * 100)}%"></span></span><span class="c">${n}</span></div>`).join('')}</div>` : ''}
+      `<div class="bar" data-act="histObs" data-arg="${esc(o)}" style="cursor:pointer"><span class="n">${esc(o)}</span><span class="track"><span class="fill" style="display:block;width:${Math.round(n / max * 100)}%"></span></span><span class="c">${n}</span></div>`).join('')}</div>` : ''}
     <span class="label">Comds</span><div class="card">${comdRow('PL COMD · ' + esc(x.pl), pl)}${comdRow('TERM COMD · ' + esc(x.course), tc)}</div>
-    <div class="between"><span class="label">History</span><span class="small">Tap to edit</span></div>
-    <div class="list">${all.length ? all.map((e) => histHtml(e, e.ts < termTs())).join('') : '<div class="empty"><span>No observations recorded.</span></div>'}</div>
+    <div class="between"><span class="label">History</span><span class="small">Tap an entry to edit</span></div>
+    ${histFilterHtml(all)}
+    <div class="list">${all.length ? (shown.length ? shown.map((e) => histHtml(e, e.ts < termTs())).join('') : '<div class="empty"><span>No entries for this filter.</span></div>') : '<div class="empty"><span>No observations recorded.</span></div>'}</div>
     </main>`;
+}
+
+function histFilterHtml(all) {
+  if (all.length < 2) return '';
+  const types = {}; all.forEach((e) => { types[e.obs] = (types[e.obs] || 0) + 1; });
+  const old = all.some((e) => e.ts < termTs());
+  const chip = (arg, label, on) => `<button class="chip sm ${on ? 'on' : ''}" data-act="histObs" data-arg="${esc(arg)}">${esc(label)}</button>`;
+  return `<div class="chips">${chip('', `All (${all.length})`, !U.histObs)}${Object.entries(types).sort((a, b) => b[1] - a[1]).map(([o, n]) => chip(o, `${o} (${n})`, U.histObs === o)).join('')}</div>
+    ${old ? `<label class="check" style="font-size:13px"><input type="checkbox" id="histTerm" ${U.histTerm ? 'checked' : ''}><span>This term only</span></label>` : ''}`;
 }
 
 function histHtml(e, old) {
@@ -933,7 +944,8 @@ const A = {
     U.batchSel.clear();
     render();
   },
-  openProfile(gc) { U.profileFrom = U.view === 'profile' ? U.profileFrom : U.view; U.profile = +gc; U.view = 'profile'; U.cadet = null; pushNav(); render(); window.scrollTo(0, 0); },
+  histObs(o) { U.histObs = o || null; render(); },
+  openProfile(gc) { U.histObs = null; U.histTerm = false; U.profileFrom = U.view === 'profile' ? U.profileFrom : U.view; U.profile = +gc; U.view = 'profile'; U.cadet = null; pushNav(); render(); window.scrollTo(0, 0); },
   editEntry(id) { U.sheet = { type: 'edit', id }; pushNav(); render(); },
   async saveEdit(id) {
     const e = S.entries.find((y) => y.id === id);
@@ -1145,6 +1157,7 @@ document.addEventListener('change', async (ev) => {
     await save(); showToast('Term start saved', `${nm} · from ${fmtD(t.value)}`, null); render();
   }
   else if (t.id === 'ntStart' && t.value) { $('#ntNameShow').textContent = seasonOf(t.value).name; }
+  else if (t.id === 'histTerm') { U.histTerm = t.checked; render(); }
   else if (t.id === 'repTerm') { U.rep.term = t.value; render(); }
   else if (t.id === 'fileInput' && t.files[0]) handleFile(t.files[0]);
   else if (t.id === 'repCls') { U.rep.cls = t.value; render(); }
