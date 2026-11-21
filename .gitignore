@@ -1,0 +1,6 @@
+# Never commit cadet data
+*.xlsx
+*.xls
+*.csv
+*.json.bak
+backup*/
