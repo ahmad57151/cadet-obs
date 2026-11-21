@@ -2,7 +2,7 @@
 /* Cadet Observations — Stage 1
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.4.6';
+const APP_VERSION = '0.4.7';
 const OBS_DEFAULT = [
   'Precis not in possession', 'Writing material not in possession', 'Arriving late', 'Missing from class',
   'Asg not submitted', 'Public speaking not prepared', 'Sleeping in class', 'Not behaving'
@@ -144,6 +144,9 @@ function renderDialog() {
 }
 function closeDialog(val) { const d = U.dialog; U.dialog = null; renderDialog(); d.res(val); }
 
+const LOGO = (px) => `<img src="icons/logo.png" alt="" width="${px}" height="${px}" style="flex:none;display:block">`;
+const title = (t) => `<div style="display:flex;align-items:center;gap:10px;min-width:0">${LOGO(34)}<h1>${t}</h1></div>`;
+
 /* ---------- render ---------- */
 function render() {
   if (U.lock) { $('#app').innerHTML = lockHtml(); return; }
@@ -177,7 +180,7 @@ function toastHtml() {
 
 function classHeader(kicker) {
   const c = curClass();
-  return `<div class="row"><h1>${kicker}</h1><span class="kicker">${new Date().toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}</span></div>
+  return `<div class="row">${title(kicker)}<span class="kicker">${new Date().toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}</span></div>
     <button class="classbtn" data-act="openClasses"><span class="l"><small>CURRENT CLASS</small><b>${c ? esc(className(c)) : 'Tap to add a class'}</b></span>
     <span style="color:#D9E3DA;display:flex;align-items:center;flex:none" aria-label="Change class">${ICON.down.replace('width="14" height="14"', 'width="20" height="20"')}</span></button>`;
 }
@@ -186,7 +189,7 @@ function viewRecord() {
   const c = curClass();
   let body;
   if (!c) {
-    body = `<div class="empty"><b>Set up your first class</b><span>A class is Subject + Course + Gp, e.g. ICT · 158 L/C · Gp A. Create the class, then import or add its cadets.</span>
+    body = `<div class="empty">${LOGO(96)}<b>Set up your first class</b><span>A class is Subject + Course + Gp, e.g. ICT · 158 L/C · Gp A. Create the class, then import or add its cadets.</span>
       <button class="btn pri" data-act="openClasses">Add class</button></div>`;
   } else {
     const cadets = classCadets(c);
@@ -412,7 +415,7 @@ function viewPending() {
     const g = list.filter((e) => (e.pun || null) === k);
     return g.length ? `<span class="label">${l}</span>${g.map(card).join('')}` : '';
   }).join('') : '<div class="empty"><b>All clear</b><span>No pending actions.</span></div>';
-  return `<header class="hdr"><span class="kicker">All classes · ${list.length} to do</span><h1>Pending actions</h1></header><main class="body">${body}</main>`;
+  return `<header class="hdr">${title('Pending actions')}<span class="kicker">All classes · ${list.length} to do</span></header><main class="body">${body}</main>`;
 }
 
 /* ---------- reports ---------- */
@@ -451,7 +454,7 @@ function viewReports() {
   const top = r.allTop ? ranked : ranked.slice(0, 10);
   const pend = es.filter((e) => e.status === 'pending').length;
   const filt = [r.obs, r.pun ? punLabel(r.pun === 'none' ? null : r.pun) : null].filter(Boolean);
-  return `<header class="hdr"><div class="row"><h1>Reports</h1></div>
+  return `<header class="hdr"><div class="row">${title('Reports')}</div>
     <select id="repCls" aria-label="Class" style="background:#183026;color:#fff;border:0;font-weight:600">
       <option value="all" ${r.cls === 'all' ? 'selected' : ''}>All classes</option>
       ${liveClasses().map((c) => `<option value="${c.id}" ${r.cls === c.id ? 'selected' : ''}>${esc(className(c))}</option>`).join('')}
@@ -547,7 +550,7 @@ function backupBanner() {
 function viewSettings() {
   const act = Object.values(S.cadets).filter((x) => x.active).length;
   const lb = S.settings.lastBackup, d = daysSince(lb);
-  return `<header class="hdr"><span class="kicker">Set up once</span><h1>Settings</h1></header><main class="body">
+  return `<header class="hdr">${title('Settings')}</header><main class="body">
     <div class="between"><span class="label">My classes</span><button class="chip sm" style="border:0;color:#23402F" data-act="openClasses">+ Add class</button></div>
     <div class="card" style="overflow:hidden">
       ${liveClasses().length ? liveClasses().map((c) => { const n = classCadets(c).length;
@@ -591,7 +594,8 @@ function viewSettings() {
     </div>
 
     <button class="btn danger" data-act="eraseAll">Erase all data on this phone</button>
-    <span class="small" style="text-align:center;padding-top:8px">Cadet Obs v${APP_VERSION} · data stored only on this phone</span>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:12px">${LOGO(56)}
+    <span class="small" style="text-align:center">Cadet Obs v${APP_VERSION} · data stored only on this phone</span></div>
     </main>`;
 }
 
@@ -607,7 +611,7 @@ function lockHtml() {
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'];
   const title = L.mode === 'unlock' ? 'Enter PIN' : L.mode === 'set1' ? 'Choose a 4-digit PIN' : 'Enter the PIN again';
   return `<div style="position:fixed;inset:0;background:#23402F;color:#fff;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:24px">
-    <img src="icons/icon-192.png" alt="" width="64" height="64" style="border-radius:16px">
+    ${LOGO(104)}
     <b style="font-size:20px">${title}</b>
     <div style="display:flex;gap:16px">${dots}</div>
     <span style="min-height:20px;color:#F7C873;font-size:14px">${esc(L.msg || '')}</span>

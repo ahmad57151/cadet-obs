@@ -1,6 +1,6 @@
 // Offline cache for the app shell. Bump VERSION on every release.
-const VERSION = 'v0.4.6';
-const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.json', 'vendor/xlsx.mini.min.js', 'icons/icon-192.png', 'icons/icon-512.png'];
+const VERSION = 'v0.4.7';
+const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.json', 'vendor/xlsx.mini.min.js', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/logo.png', 'icons/favicon.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));
