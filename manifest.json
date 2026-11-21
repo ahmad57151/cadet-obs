@@ -1,6 +1,6 @@
 {
-  "name": "Cadet Observations",
-  "short_name": "Cadet Obs",
+  "name": "GC's Obsn - PMA",
+  "short_name": "GC's Obsn - PMA",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
@@ -27,5 +27,5 @@
       "purpose": "maskable"
     }
   ],
-  "description": "PMA instructor tool for recording cadet observations. Developed by Maj Ahmad Mujtaba, AEC (Cptr Sc)"
+  "description": "PMA instructor tool for recording GC observations. Developed by Maj Ahmad Mujtaba, AEC (Cptr Sc)"
 }

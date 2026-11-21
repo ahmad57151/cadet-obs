@@ -1,4 +1,4 @@
-# Cadet Obs
+# GC's Obsn - PMA
 
 *Developed by Maj Ahmad Mujtaba, AEC (Cptr Sc)*
 

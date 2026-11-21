@@ -1,8 +1,10 @@
 'use strict';
-/* Cadet Observations — Stage 1
+/* GC's Obsn - PMA (cadet observations)
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.5.0';
+const APP_VERSION = '0.5.1';
+const APP_NAME = "GC's Obsn - PMA";
+const FILE_TAG = 'GCs_Obsn_PMA';
 const CREDIT = 'Developed by Maj Ahmad Mujtaba, AEC (Cptr Sc)';
 const OBS_DEFAULT = [
   'Precis not in possession', 'Writing material not in possession', 'Arriving late', 'Missing from class',
@@ -181,7 +183,7 @@ function toastHtml() {
 
 function classHeader(kicker) {
   const c = curClass();
-  return `<div class="row">${title(kicker)}<span class="kicker">${new Date().toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}</span></div>
+  return `<div class="row"><div style="display:flex;align-items:center;gap:10px;min-width:0">${LOGO(34)}<h1 style="white-space:nowrap;font-size:min(21px,5.4vw)">${kicker}</h1></div><span class="kicker" style="white-space:nowrap;flex:none">${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span></div>
     <button class="classbtn" data-act="openClasses"><span class="l"><small>CURRENT CLASS</small><b>${c ? esc(className(c)) : 'Tap to add a class'}</b></span>
     <span style="color:#D9E3DA;display:flex;align-items:center;flex:none" aria-label="Change class">${ICON.down.replace('width="14" height="14"', 'width="20" height="20"')}</span></button>`;
 }
@@ -206,7 +208,7 @@ function viewRecord() {
 `;
     if (U.mode === 'batch') body += batchFootHtml();
   }
-  return `<header class="hdr">${classHeader('Record')}
+  return `<header class="hdr">${classHeader(esc(APP_NAME))}
     ${c ? `<div class="seg"><button class="${U.mode === 'cadet' ? 'on' : ''}" data-act="mode" data-arg="cadet">Cadet first</button><button class="${U.mode === 'batch' ? 'on' : ''}" data-act="mode" data-arg="batch">Observation first</button></div>` : ''}
     </header><main class="body" style="${U.mode === 'batch' && c ? 'padding-bottom:260px' : ''}">${body}</main>`;
 }
@@ -511,7 +513,7 @@ function buildXlsx() {
   const ftag = [r.obs, r.pun ? punLabel(r.pun === 'none' ? null : r.pun) : null].filter(Boolean).join('_');
   const tag = ((c ? `${c.subject}_${c.course}_Gp${c.gp}` : 'AllClasses') + (ftag ? '_' + ftag : '')).replace(/[^A-Za-z0-9]+/g, '_');
   const perName = r.period === 'term' ? (S.terms.find((t) => t.id === r.term) || curTerm()).name : r.period;
-  const name = `CadetObs_${tag}_${perName.replace(/[^A-Za-z0-9]+/g, '_')}_${today()}.xlsx`;
+  const name = `${FILE_TAG}_${tag}_${perName.replace(/[^A-Za-z0-9]+/g, '_')}_${today()}.xlsx`;
   const data = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
   return new File([data], name, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
@@ -537,7 +539,7 @@ async function shareFile(file) {
 // Backups are plain text (.txt) so Android allows sharing them to WhatsApp/Drive/Gmail.
 function backupFile() {
   const data = JSON.stringify({ app: 'cadet-obs', v: 1, exported: Date.now(), state: S });
-  return new File([data], `CadetObs_backup_${today()}.txt`, { type: 'text/plain' });
+  return new File([data], `${FILE_TAG}_backup_${today()}.txt`, { type: 'text/plain' });
 }
 const daysSince = (ts) => ts ? Math.floor((Date.now() - ts) / 86400000) : null;
 function termBanner() {
@@ -589,7 +591,7 @@ function viewSettings() {
       <button class="btn sm pri" data-act="backup" data-arg="save">Save backup file</button>
       <button class="btn sm" data-act="backup" data-arg="share" ${canShareFiles() ? '' : 'disabled'}>Share backup (WhatsApp, Drive…)</button>
       <button class="btn sm" data-act="pickRestore">Restore from backup…</button>
-      <span class="small">The backup is one file (CadetObs_backup_date.txt) with everything: cadets, classes, records, Comds. Keep it in Google Drive or send it to yourself on WhatsApp. Restoring replaces all data on this phone.</span>
+      <span class="small">The backup is one file (${FILE_TAG}_backup_date.txt) with everything: cadets, classes, records, Comds. Keep it in Google Drive or send it to yourself on WhatsApp. Restoring replaces all data on this phone.</span>
     </div>
 
     ${installCard()}
@@ -604,7 +606,7 @@ function viewSettings() {
     <button class="btn danger" data-act="eraseAll">Erase all data on this phone</button>
     <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:12px">${LOGO(56)}
     <span class="small" style="text-align:center;color:#3F3F3A;font-weight:600">${CREDIT}</span>
-    <span class="small" style="text-align:center">Cadet Obs v${APP_VERSION} · data stored only on this phone</span></div>
+    <span class="small" style="text-align:center">${esc(APP_NAME)} · v${APP_VERSION} · data stored only on this phone</span></div>
     </main>`;
 }
 
@@ -621,6 +623,7 @@ function lockHtml() {
   const title = L.mode === 'unlock' ? 'Enter PIN' : L.mode === 'set1' ? 'Choose a 4-digit PIN' : 'Enter the PIN again';
   return `<div style="position:fixed;inset:0;background:#23402F;color:#fff;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:safe center;gap:18px;padding:24px 24px 16px;overflow-y:auto">
     ${LOGO(104)}
+    <span style="font-size:15px;font-weight:600;color:#D9E3DA;margin-top:-8px">${esc(APP_NAME)}</span>
     <b style="font-size:20px">${title}</b>
     <div style="display:flex;gap:16px">${dots}</div>
     <span style="min-height:20px;color:#F7C873;font-size:14px">${esc(L.msg || '')}</span>
@@ -1236,7 +1239,7 @@ function migrate() { // fill fields added in later versions
 async function restoreFrom(f) {
   let b;
   try { b = JSON.parse(await f.text()); } catch (e) { uiAlert('This is not a valid backup file.'); return; }
-  if (!b || b.app !== 'cadet-obs' || !b.state || !b.state.cadets) { uiAlert('This is not a Cadet Obs backup file.'); return; }
+  if (!b || b.app !== 'cadet-obs' || !b.state || !b.state.cadets) { uiAlert(`This is not a ${APP_NAME} backup file.`); return; }
   const st = b.state;
   const msg = `Backup of ${new Date(b.exported).toLocaleString()}\n${Object.keys(st.cadets).length} cadets · ${st.classes.length} classes · ${st.entries.length} records\n\nThis replaces all data currently on this phone.`;
   if (!(await uiConfirm(msg, { title: 'Restore backup?', ok: 'Restore', danger: true }))) return;
@@ -1254,7 +1257,7 @@ window.addEventListener('appinstalled', () => { installEvt = null; if (S) { show
 function installCard() {
   if (isInstalled()) return '';
   return `<span class="label">Install</span><div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
-    <span style="font-size:14px;font-weight:600">Put Cadet Obs on your home screen</span>
+    <span style="font-size:14px;font-weight:600">Put ${esc(APP_NAME)} on your home screen</span>
     ${installEvt ? '<button class="btn sm pri" data-act="install">Install app</button>'
       : '<span class="small">In Chrome tap <b>⋮</b> (top right) → <b>Install app</b> or <b>Add to Home screen</b>. It then opens full-screen and works offline.</span>'}</div>`;
 }
