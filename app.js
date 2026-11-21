@@ -2,7 +2,8 @@
 /* Cadet Observations — Stage 1
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.4.7';
+const APP_VERSION = '0.4.8';
+const CREDIT = 'Developed by Maj Ahmad Mujtaba, AEC (Cptr Sc)';
 const OBS_DEFAULT = [
   'Precis not in possession', 'Writing material not in possession', 'Arriving late', 'Missing from class',
   'Asg not submitted', 'Public speaking not prepared', 'Sleeping in class', 'Not behaving'
@@ -190,7 +191,8 @@ function viewRecord() {
   let body;
   if (!c) {
     body = `<div class="empty">${LOGO(96)}<b>Set up your first class</b><span>A class is Subject + Course + Gp, e.g. ICT · 158 L/C · Gp A. Create the class, then import or add its cadets.</span>
-      <button class="btn pri" data-act="openClasses">Add class</button></div>`;
+      <button class="btn pri" data-act="openClasses">Add class</button>
+      <span class="small" style="padding-top:24px">${CREDIT}</span></div>`;
   } else {
     const cadets = classCadets(c);
     const pls = ['All', ...new Set(cadets.map((x) => x.pl))];
@@ -595,6 +597,7 @@ function viewSettings() {
 
     <button class="btn danger" data-act="eraseAll">Erase all data on this phone</button>
     <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:12px">${LOGO(56)}
+    <span class="small" style="text-align:center;color:#3F3F3A;font-weight:600">${CREDIT}</span>
     <span class="small" style="text-align:center">Cadet Obs v${APP_VERSION} · data stored only on this phone</span></div>
     </main>`;
 }
@@ -610,7 +613,7 @@ function lockHtml() {
   const dots = [0, 1, 2, 3].map((i) => `<span style="width:16px;height:16px;border-radius:8px;border:2px solid #fff;background:${i < L.pin.length ? '#fff' : 'transparent'}"></span>`).join('');
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'];
   const title = L.mode === 'unlock' ? 'Enter PIN' : L.mode === 'set1' ? 'Choose a 4-digit PIN' : 'Enter the PIN again';
-  return `<div style="position:fixed;inset:0;background:#23402F;color:#fff;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:24px">
+  return `<div style="position:fixed;inset:0;background:#23402F;color:#fff;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:safe center;gap:18px;padding:24px 24px 16px;overflow-y:auto">
     ${LOGO(104)}
     <b style="font-size:20px">${title}</b>
     <div style="display:flex;gap:16px">${dots}</div>
@@ -619,6 +622,7 @@ function lockHtml() {
       : `<button data-act="pinKey" data-arg="${k}" aria-label="${k === '⌫' ? 'Delete' : k}" style="height:76px;border-radius:38px;border:0;background:${k === '⌫' ? 'transparent' : '#183026'};color:#fff;font-size:26px;font-weight:600">${k}</button>`).join('')}</div>
     ${L.mode === 'unlock' ? '<button data-act="forgotPin" style="border:0;background:transparent;color:#D9E3DA;font-size:14px;height:44px">Forgot PIN?</button>'
       : '<button data-act="pinCancel" style="border:0;background:transparent;color:#D9E3DA;font-size:14px;height:44px">Cancel</button>'}
+    <span style="text-align:center;font-size:12px;color:#B8C9BC;pointer-events:none;padding-bottom:env(safe-area-inset-bottom)">${CREDIT}</span>
   </div>`;
 }
 

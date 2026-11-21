@@ -1,5 +1,7 @@
 # Cadet Obs
 
+*Developed by Maj Ahmad Mujtaba, AEC (Cptr Sc)*
+
 Offline phone app (PWA) for an instructor to record cadet observations and punishments, class-wise.
 
 - All data is stored **only on the phone** (IndexedDB). Nothing is sent to any server.
