@@ -2,7 +2,7 @@
 /* Cadet Observations — Stage 1
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.3.0';
+const APP_VERSION = '0.3.1';
 const OBS_DEFAULT = [
   'Precis not in possession', 'Writing material not in possession', 'Arriving late', 'Missing from class',
   'Asg not submitted', 'Public speaking not prepared', 'Sleeping in class', 'Not behaving'
@@ -93,6 +93,34 @@ const ICON = {
     settings: 'M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4'
   }
 };
+
+/* ---------- in-app dialogs (instead of the browser's alert/confirm/prompt,
+   which show the website address as their title) ---------- */
+function uiDialog(o) {
+  return new Promise((res) => {
+    U.dialog = Object.assign({ title: '', msg: '', ok: 'OK', cancel: 'Cancel', danger: false, input: null, err: '' }, o, { res });
+    renderDialog();
+  });
+}
+const uiAlert = (msg, title) => uiDialog({ title: title || 'Please check', msg, cancel: null });
+const uiConfirm = (msg, o) => uiDialog(Object.assign({ msg }, o || {}));
+function renderDialog() {
+  let box = document.getElementById('dlg');
+  if (!box) { box = document.createElement('div'); box.id = 'dlg'; document.body.appendChild(box); }
+  const d = U.dialog;
+  box.innerHTML = !d ? '' : `<div class="scrim" style="align-items:center;z-index:200;padding:20px">
+    <div class="card" role="alertdialog" aria-modal="true" style="width:100%;max-width:400px;padding:20px;display:flex;flex-direction:column;gap:14px">
+    ${d.title ? `<b style="font-size:18px">${esc(d.title)}</b>` : ''}
+    <span style="font-size:15px;line-height:1.45;white-space:pre-line;color:#3F3F3A">${esc(d.msg)}</span>
+    ${d.input ? `<label class="field"><span>Type ${esc(d.input)} to confirm</span><input type="text" id="dlgInput" autocapitalize="characters" autocomplete="off"></label>` : ''}
+    ${d.err ? `<span style="color:#A1271B;font-size:13px">${esc(d.err)}</span>` : ''}
+    <div class="${d.cancel ? 'grid2' : ''}" style="${d.cancel ? '' : 'display:flex'}">
+      ${d.cancel ? `<button class="btn" data-act="dlgCancel">${esc(d.cancel)}</button>` : ''}
+      <button class="btn ${d.danger ? 'danger' : 'pri'}" style="${d.cancel ? '' : 'flex:1'}${d.danger ? ';background:#A1271B;color:#fff;border-color:#A1271B' : ''}" data-act="dlgOk">${esc(d.ok)}</button>
+    </div></div></div>`;
+  const i = document.getElementById('dlgInput'); if (i) i.focus();
+}
+function closeDialog(val) { const d = U.dialog; U.dialog = null; renderDialog(); d.res(val); }
 
 /* ---------- render ---------- */
 function render() {
@@ -422,7 +450,7 @@ function downloadFile(file) {
 }
 async function shareFile(file) {
   try { await navigator.share({ files: [file], title: file.name }); return true; }
-  catch (e) { if (e.name !== 'AbortError') alert('Could not share: ' + e.message); return false; }
+  catch (e) { if (e.name !== 'AbortError') uiAlert('Could not share: ' + e.message); return false; }
 }
 
 /* ---------- backup ---------- */
@@ -778,6 +806,7 @@ function pushNav() { history.pushState({ d: Date.now() }, ''); }
 function silentBack() { U._skipPop = true; history.back(); }
 function goBack() {
   if (U._skipPop) { U._skipPop = false; render(); return; }
+  if (U.dialog) { pushNav(); closeDialog(false); return; }
   if (U.sheet) { U.sheet = null; U.preview = null; }
   else if (U.view === 'profile') { U.view = U.profileFrom || 'record'; U.profile = null; }
   else if (U.view === 'class') { U.view = U.classFrom || 'record'; }
@@ -786,6 +815,12 @@ function goBack() {
 }
 
 const A = {
+  dlgOk() {
+    const d = U.dialog;
+    if (d.input && norm($('#dlgInput').value).toUpperCase() !== d.input) { d.err = `Please type ${d.input} exactly.`; renderDialog(); return; }
+    closeDialog(true);
+  },
+  dlgCancel() { closeDialog(false); },
   nav(k) { U.view = k; U.cadet = null; U.profile = null; U.selObs = null; render(); window.scrollTo(0, 0); },
   mode(m) { U.mode = m; render(); },
   pl(p) { U.pl = p; render(); },
@@ -830,7 +865,7 @@ const A = {
     await save(); U.sheet = null; silentBack(); showToast('Entry updated', e.obs, null); render();
   },
   async delEntry(id) {
-    if (!confirm('Delete this entry permanently?')) return;
+    if (!(await uiConfirm('This entry will be deleted permanently.', { title: 'Delete entry?', ok: 'Delete', danger: true }))) return;
     S.entries = S.entries.filter((e) => e.id !== id);
     await save(); U.sheet = null; silentBack(); showToast('Entry deleted', '', null); render();
   },
@@ -849,9 +884,9 @@ const A = {
   async addClass() {
     const f = U.sheet.form;
     f.subject = $('#fSubject').value.trim(); f.course = normCourse($('#fCourse').value); f.gp = $('#fGp').value;
-    if (!f.subject) { alert('Enter the subject, e.g. ICT'); return; }
-    if (!f.course) { alert('Enter the course, e.g. 158 L/C'); return; }
-    if (S.classes.some((c) => c.subject.toLowerCase() === f.subject.toLowerCase() && c.course === f.course && c.gp === f.gp)) { alert('This class already exists.'); return; }
+    if (!f.subject) { uiAlert('Enter the subject, e.g. ICT'); return; }
+    if (!f.course) { uiAlert('Enter the course, e.g. 158 L/C'); return; }
+    if (S.classes.some((c) => c.subject.toLowerCase() === f.subject.toLowerCase() && c.course === f.course && c.gp === f.gp)) { uiAlert('This class already exists.'); return; }
     const c = { id: uid(), subject: f.subject, course: f.course, gp: f.gp };
     S.classes.push(c); S.settings.currentClass = c.id;
     await save();
@@ -861,7 +896,7 @@ const A = {
   },
   async delClass(id) {
     const c = S.classes.find((y) => y.id === id);
-    if (!confirm(`Remove class “${className(c)}”? Recorded entries are kept.`)) return;
+    if (!(await uiConfirm('Cadets and recorded entries are kept.', { title: `Remove class “${className(c)}”?`, ok: 'Remove', danger: true }))) return;
     S.classes = S.classes.filter((y) => y.id !== id);
     if (S.settings.currentClass === id) S.settings.currentClass = S.classes[0] ? S.classes[0].id : null;
     await save(); history.back(); showToast('Class removed', 'Cadets and entries are kept', null);
@@ -885,9 +920,9 @@ const A = {
     const pl = norm($('#cPl').value).toUpperCase();
     const course = old ? normCourse($('#cCourse').value) : cls.course, gp = old ? $('#cGp').value : cls.gp;
     let appt = norm($('#cAppt').value).toUpperCase(); if (appt === 'GC') appt = '';
-    if (!gc) { alert('Enter the GC No (numbers only).'); return; }
-    if (!name || !pl || !course) { alert('Name, Pl and Course are required.'); return; }
-    if (!old && S.cadets[gc]) { alert(`GC ${gc} already exists: ${S.cadets[gc].name} (${S.cadets[gc].course}). Edit that cadet instead.`); return; }
+    if (!gc) { uiAlert('Enter the GC No (numbers only).'); return; }
+    if (!name || !pl || !course) { uiAlert('Name, Pl and Course are required.'); return; }
+    if (!old && S.cadets[gc]) { uiAlert(`GC ${gc} already exists: ${S.cadets[gc].name} (${S.cadets[gc].course}). Edit that cadet instead.`); return; }
     const active = old ? $('#cActive').checked : true;
     S.cadets[gc] = Object.assign({}, old || {}, { gc, name, tag, pl, appt, course, gp, active });
     await save();
@@ -904,14 +939,14 @@ const A = {
   async saveComd() {
     const role = $('#mRole').value, rawKey = norm($('#mKey').value);
     const m = { role, key: role === 'Term Comd' ? normCourse(rawKey) : rawKey.toUpperCase(), rank: norm($('#mRank').value), name: norm($('#mName').value), unit: norm($('#mUnit').value), phone: norm($('#mPhone').value) };
-    if (!m.key || !m.name) { alert('Pl/Course and Name are required.'); return; }
+    if (!m.key || !m.name) { uiAlert('Pl/Course and Name are required.'); return; }
     const i = U.sheet.idx;
     const dup = S.comds.findIndex((y) => y.role === m.role && y.key === m.key);
     if (i === 'new') { if (dup >= 0) S.comds[dup] = m; else S.comds.push(m); } else S.comds[+i] = m;
     await save(); U.sheet = null; silentBack(); showToast('Comd saved', `${m.role} ${m.key}`, null);
   },
   async delComd() {
-    if (!confirm('Delete this Comd?')) return;
+    if (!(await uiConfirm('This Comd will be removed from the directory.', { title: 'Delete Comd?', ok: 'Delete', danger: true }))) return;
     S.comds.splice(+U.sheet.idx, 1); await save(); U.sheet = null; silentBack();
   },
   repPeriod(k) { U.rep.period = k; render(); },
@@ -926,7 +961,7 @@ const A = {
   },
   pickRestore() { $('#restoreInput').value = ''; $('#restoreInput').click(); },
   pinSetup() { U.lock = { mode: 'set1', pin: '', first: '', msg: '' }; render(); },
-  async pinOff() { if (!confirm('Turn off PIN lock?')) return; delete S.settings.pinHash; await save(); showToast('PIN lock off', '', null); render(); },
+  async pinOff() { if (!(await uiConfirm('The app will open without a PIN.', { title: 'Turn off PIN lock?', ok: 'Turn off' }))) return; delete S.settings.pinHash; await save(); showToast('PIN lock off', '', null); render(); },
   pinCancel() { U.lock = null; render(); },
   async pinKey(k) {
     const L = U.lock;
@@ -942,11 +977,11 @@ const A = {
     else { L.mode = 'set1'; L.pin = ''; L.first = ''; L.msg = 'PINs did not match — try again'; render(); }
   },
   async forgotPin() {
-    if (prompt('Without the PIN, the only option is to ERASE ALL DATA on this phone (you can restore a backup afterwards).\n\nType ERASE to continue.') !== 'ERASE') return;
+    if (!(await uiConfirm('Without the PIN, the only way in is to erase all data on this phone. You can restore a backup afterwards.', { title: 'Forgot PIN?', ok: 'Erase all data', danger: true, input: 'ERASE' }))) return;
     S = freshState(); await save(); U.lock = null; U.view = 'record'; render();
   },
   async eraseAll() {
-    if (prompt('This deletes ALL cadets, classes, records and Comds on this phone.\nMake a backup first if you may need them.\n\nType ERASE to continue.') !== 'ERASE') return;
+    if (!(await uiConfirm('This deletes ALL cadets, classes, records and Comds on this phone. Make a backup first if you may need them.', { title: 'Erase all data?', ok: 'Erase', danger: true, input: 'ERASE' }))) return;
     S = freshState(); await save(); U.view = 'record'; U.cadet = null; showToast('All data erased', '', null); render();
   },
   pickFile(id) { U.importClassId = id || U.classId; $('#fileInput').value = ''; $('#fileInput').click(); },
@@ -988,11 +1023,11 @@ window.addEventListener('popstate', goBack);
 
 async function restoreFrom(f) {
   let b;
-  try { b = JSON.parse(await f.text()); } catch (e) { alert('This is not a valid backup file.'); return; }
-  if (!b || b.app !== 'cadet-obs' || !b.state || !b.state.cadets) { alert('This is not a Cadet Obs backup file.'); return; }
+  try { b = JSON.parse(await f.text()); } catch (e) { uiAlert('This is not a valid backup file.'); return; }
+  if (!b || b.app !== 'cadet-obs' || !b.state || !b.state.cadets) { uiAlert('This is not a Cadet Obs backup file.'); return; }
   const st = b.state;
-  const msg = `Restore backup from ${new Date(b.exported).toLocaleString()}?\n\n${Object.keys(st.cadets).length} cadets · ${st.classes.length} classes · ${st.entries.length} records\n\nThis REPLACES all data currently on this phone.`;
-  if (!confirm(msg)) return;
+  const msg = `Backup of ${new Date(b.exported).toLocaleString()}\n${Object.keys(st.cadets).length} cadets · ${st.classes.length} classes · ${st.entries.length} records\n\nThis replaces all data currently on this phone.`;
+  if (!(await uiConfirm(msg, { title: 'Restore backup?', ok: 'Restore', danger: true }))) return;
   S = Object.assign(freshState(), st);
   S.settings = Object.assign(freshState().settings, st.settings || {});
   await save(); U.view = 'record'; U.cadet = null; U.rep = null;
