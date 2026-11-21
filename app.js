@@ -2,7 +2,7 @@
 /* Cadet Observations — Stage 1
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.4.9';
+const APP_VERSION = '0.5.0';
 const CREDIT = 'Developed by Maj Ahmad Mujtaba, AEC (Cptr Sc)';
 const OBS_DEFAULT = [
   'Precis not in possession', 'Writing material not in possession', 'Arriving late', 'Missing from class',
@@ -192,6 +192,7 @@ function viewRecord() {
   if (!c) {
     body = `<div class="empty">${LOGO(96)}<b>Set up your first class</b><span>A class is Subject + Course + Gp, e.g. ICT · 158 L/C · Gp A. Create the class, then import or add its cadets.</span>
       <button class="btn pri" data-act="openClasses">Add class</button>
+      ${!isInstalled() && installEvt ? '<button class="btn" data-act="install">Install app on this phone</button>' : ''}
       <span class="small" style="padding-top:24px">${CREDIT}</span></div>`;
   } else {
     const cadets = classCadets(c);
@@ -591,6 +592,7 @@ function viewSettings() {
       <span class="small">The backup is one file (CadetObs_backup_date.txt) with everything: cadets, classes, records, Comds. Keep it in Google Drive or send it to yourself on WhatsApp. Restoring replaces all data on this phone.</span>
     </div>
 
+    ${installCard()}
     <span class="label">Security</span>
     <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
       <span style="font-size:14px;font-weight:600">PIN lock: ${S.settings.pinHash ? 'On' : 'Off'}</span>
@@ -1095,6 +1097,13 @@ const A = {
     if (!(await uiConfirm('This Comd will be removed from the directory.', { title: 'Delete Comd?', ok: 'Delete', danger: true }))) return;
     S.comds.splice(+U.sheet.idx, 1); await save(); U.sheet = null; silentBack();
   },
+  async install() {
+    if (!installEvt) return;
+    installEvt.prompt();
+    const r = await installEvt.userChoice.catch(() => null);
+    installEvt = null; render();
+    if (r && r.outcome === 'dismissed') showToast('Not installed', 'Settings → Install, any time', null);
+  },
   repPeriod(k) { U.rep.period = k; render(); },
   repObs(o) { U.rep.obs = U.rep.obs === o ? null : o; U.rep.allTop = false; render(); },
   repPun(k) { U.rep.pun = U.rep.pun === k ? null : k; U.rep.allTop = false; render(); },
@@ -1235,6 +1244,19 @@ async function restoreFrom(f) {
   migrate();
   await save(); U.view = 'record'; U.cadet = null; U.rep = null;
   showToast('Backup restored', `${st.entries.length} records`, null); render();
+}
+
+/* ---------- install (Chrome hides its own prompt for months once dismissed) ---------- */
+let installEvt = null;
+const isInstalled = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; if (S) render(); });
+window.addEventListener('appinstalled', () => { installEvt = null; if (S) { showToast('App installed', 'Open it from your home screen', null); render(); } });
+function installCard() {
+  if (isInstalled()) return '';
+  return `<span class="label">Install</span><div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
+    <span style="font-size:14px;font-weight:600">Put Cadet Obs on your home screen</span>
+    ${installEvt ? '<button class="btn sm pri" data-act="install">Install app</button>'
+      : '<span class="small">In Chrome tap <b>⋮</b> (top right) → <b>Install app</b> or <b>Add to Home screen</b>. It then opens full-screen and works offline.</span>'}</div>`;
 }
 
 let hiddenAt = 0;
