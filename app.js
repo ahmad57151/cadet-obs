@@ -2,7 +2,7 @@
 /* Cadet Observations — Stage 1
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.4.2';
+const APP_VERSION = '0.4.3';
 const OBS_DEFAULT = [
   'Precis not in possession', 'Writing material not in possession', 'Arriving late', 'Missing from class',
   'Asg not submitted', 'Public speaking not prepared', 'Sleeping in class', 'Not behaving'
@@ -324,14 +324,15 @@ function waLink(phone, text) {
 }
 
 function classListRows(c) {
-  const q = (U.cq || '').trim().toLowerCase();
-  const rows = Object.values(S.cadets).filter((x) => x.course === c.course && x.gp === c.gp &&
+  const q = (U.cq || '').trim().toLowerCase(), sel = U.clsSel;
+  const rows = Object.values(S.cadets).filter((x) => x.course === c.course && x.gp === c.gp && (x.active ? true : U.showRemoved && !sel) &&
     (!q || String(x.gc).includes(q) || x.name.toLowerCase().includes(q) || x.pl.toLowerCase().includes(q)))
     .sort((a, b) => (b.active - a.active) || a.pl.localeCompare(b.pl) || a.gc - b.gc);
-  return rows.length ? rows.map((x) => `<button class="crow" style="min-height:54px;${x.active ? '' : 'opacity:.55'}" data-act="editCadet" data-arg="${x.gc}">
-    <span class="grow"><span class="nm">${esc(x.name)}${x.tag ? `<span class="tag">${esc(x.tag)}</span>` : ''}${x.appt ? `<span class="tag" style="background:#EFEDE5;color:#3F3F3A">${esc(x.appt)}</span>` : ''}${x.active ? '' : '<span class="pill p-grey">Inactive</span>'}</span>
+  return rows.length ? rows.map((x) => `<button class="crow ${sel && sel.has(x.gc) ? 'sel' : ''}" style="min-height:54px;${x.active ? '' : 'opacity:.55'}" data-act="${sel ? 'clsToggle' : 'editCadet'}" data-arg="${x.gc}">
+    ${sel ? `<input type="checkbox" tabindex="-1" aria-hidden="true" ${sel.has(x.gc) ? 'checked' : ''}>` : ''}
+    <span class="grow"><span class="nm">${esc(x.name)}${x.tag ? `<span class="tag">${esc(x.tag)}</span>` : ''}${x.appt ? `<span class="tag" style="background:#EFEDE5;color:#3F3F3A">${esc(x.appt)}</span>` : ''}${x.active ? '' : '<span class="pill p-grey">Removed</span>'}</span>
     <span class="sub">GC ${x.gc} · ${esc(x.pl)}</span></span></button>`).join('')
-    : `<div class="empty"><span>${q ? 'No cadet matches.' : 'No cadets yet.'}</span></div>`;
+    : `<div class="empty"><span>${q ? 'No cadet matches.' : 'No cadets in this class.'}</span></div>`;
 }
 
 function viewClass() {
@@ -341,6 +342,7 @@ function viewClass() {
   const pls = {}; act.forEach((x) => { pls[x.pl] = (pls[x.pl] || 0) + 1; });
   const shared = S.classes.filter((y) => y.id !== c.id && y.course === c.course && y.gp === c.gp);
   const isCur = c.id === S.settings.currentClass;
+  const removed = Object.values(S.cadets).filter((x) => !x.active && x.course === c.course && x.gp === c.gp).length;
   return `<header class="hdr"><div class="row" style="justify-content:flex-start"><button class="back" data-act="back" aria-label="Back">${ICON.back}</button>
     <span class="grow"><span class="kicker">Class</span><span style="font-size:19px;font-weight:700">${esc(className(c))}</span></span></div></header>
     <main class="body">
@@ -351,11 +353,17 @@ function viewClass() {
       ${shared.length ? `<span class="small">Same cadets as: ${shared.map((y) => esc(className(y))).join(', ')}</span>` : ''}
     </div>
     ${isCur ? '' : `<button class="btn" data-act="useClass" data-arg="${c.id}">Use this class for recording</button>`}
-    <span class="label">Cadets</span>
+    <div class="between"><span class="label">Cadets</span>
+      ${U.clsSel ? `<button class="chip sm" style="border:0;color:#23402F" data-act="clsAll">${U.clsSel.size === act.length ? 'Select none' : 'Select all'}</button>`
+        : (act.length ? '<button class="chip sm" style="border:0;color:#A1271B" data-act="clsSelect">Remove cadets…</button>' : '')}</div>
     <label class="search">${ICON.search}<input id="ccq" type="text" placeholder="GC No, name or Pl" value="${esc(U.cq || '')}"></label>
     <div id="clsList" class="list">${classListRows(c)}</div>
-    <button class="btn danger" data-act="delClass" data-arg="${c.id}">Remove this class</button>
-    </main>`;
+    ${removed && !U.clsSel ? `<button class="btn sm" data-act="toggleRemoved">${U.showRemoved ? 'Hide' : 'Show'} removed cadets (${removed})</button>` : ''}
+    ${U.clsSel ? '' : `<button class="btn danger" data-act="delClass" data-arg="${c.id}">Remove this class</button>`}
+    </main>
+    ${U.clsSel ? `<div class="foot"><span class="small">Removed cadets disappear from this class. Their records are kept, and importing the list again brings them back.</span>
+      <div class="grid2"><button class="btn" data-act="clsCancel">Cancel</button>
+      <button class="btn danger" style="background:#A1271B;color:#fff;border-color:#A1271B" data-act="clsRemove" ${U.clsSel.size ? '' : 'disabled'}>Remove ${U.clsSel.size || ''}</button></div></div>` : ''}`;
 }
 
 function viewPending() {
@@ -652,7 +660,7 @@ function cadetSheet() {
     : `<div class="hint ok"><span>Adding to <b>${esc(className(c))}</b></span></div>`}
     <datalist id="plList">${pls.map((v) => `<option value="${esc(v)}">`).join('')}</datalist>
     <datalist id="cCourseList">${courses.map((v) => `<option value="${esc(v)}">`).join('')}</datalist>
-    ${x ? `<label class="check"><input type="checkbox" id="cActive" ${x.active ? 'checked' : ''}><span>Active (untick if relegated / withdrawn — history is kept)</span></label>` : ''}
+    ${x ? `<label class="check"><input type="checkbox" id="cActive" ${x.active ? 'checked' : ''}><span>In class (untick to remove — e.g. relegated / withdrawn; history is kept)</span></label>` : ''}
     <button class="btn pri" data-act="saveCadet">${x ? 'Save changes' : 'Save'}</button>
     ${x ? '' : '<button class="btn" data-act="saveCadet" data-arg="more">Save &amp; add another</button>'}
     <button class="btn" data-act="closeSheet">Cancel</button>`;
@@ -878,7 +886,7 @@ function goBack() {
   if (U.dialog) { pushNav(); closeDialog(false); return; }
   if (U.sheet) { U.sheet = null; U.preview = null; }
   else if (U.view === 'profile') { U.view = U.profileFrom || 'record'; U.profile = null; }
-  else if (U.view === 'class') { U.view = U.classFrom || 'record'; }
+  else if (U.view === 'class') { if (U.clsSel) { U.clsSel = null; pushNav(); render(); return; } U.view = U.classFrom || 'record'; }
   else if (U.cadet) { U.cadet = null; U.selObs = null; U.note = ''; U.showNote = false; }
   render();
 }
@@ -890,7 +898,7 @@ const A = {
     closeDialog(true);
   },
   dlgCancel() { closeDialog(false); },
-  nav(k) { U.view = k; U.cadet = null; U.profile = null; U.selObs = null; render(); window.scrollTo(0, 0); },
+  nav(k) { U.clsSel = null; U.view = k; U.cadet = null; U.profile = null; U.selObs = null; render(); window.scrollTo(0, 0); },
   mode(m) { U.mode = m; render(); },
   pl(p) { U.pl = p; render(); },
   openCadet(gc) { U.cadet = +gc; U.selObs = null; U.note = ''; U.showNote = false; pushNav(); render(); window.scrollTo(0, 0); },
@@ -946,7 +954,7 @@ const A = {
   openClass(id) {
     if (U.sheet) U.sheet = null; else pushNav(); // from the classes sheet: reuse its history entry
     if (U.view !== 'class') U.classFrom = U.view;
-    U.view = 'class'; U.classId = id; U.cq = ''; render(); window.scrollTo(0, 0);
+    U.view = 'class'; U.classId = id; U.cq = ''; U.clsSel = null; render(); window.scrollTo(0, 0);
   },
   async useClass(id) { S.settings.currentClass = id; await save(); showToast('Recording in', className(S.classes.find((c) => c.id === id)), null); render(); },
   async pickClass(id) { S.settings.currentClass = id; U.pl = 'All'; U.batchSel.clear(); await save(); U.sheet = null; silentBack(); render(); },
@@ -1002,6 +1010,28 @@ const A = {
     showToast(old ? 'Cadet updated' : 'Cadet added', `GC ${gc} ${name}`, null);
     if (U.sheet.back) { U.sheet = U.sheet.back; render(); } else { U.sheet = null; silentBack(); }
     if (U.view === 'class') render();
+  },
+  clsSelect() { U.clsSel = new Set(); render(); },
+  clsCancel() { U.clsSel = null; render(); },
+  clsToggle(gc) { gc = +gc; U.clsSel.has(gc) ? U.clsSel.delete(gc) : U.clsSel.add(gc); render(); },
+  clsAll() {
+    const c = S.classes.find((y) => y.id === U.classId);
+    const act = Object.values(S.cadets).filter((x) => x.active && x.course === c.course && x.gp === c.gp);
+    U.clsSel = U.clsSel.size === act.length ? new Set() : new Set(act.map((x) => x.gc)); render();
+  },
+  toggleRemoved() { U.showRemoved = !U.showRemoved; render(); },
+  async clsRemove() {
+    const c = S.classes.find((y) => y.id === U.classId), n = U.clsSel.size;
+    const shared = liveClasses().filter((y) => y.id !== c.id && y.course === c.course && y.gp === c.gp);
+    const msg = `${n} cadet${n > 1 ? 's' : ''} will be removed from ${className(c)}.${shared.length ? `\nThey are also removed from ${shared.map(className).join(', ')} (same course and group).` : ''}\n\nThe class stays. Records already made are kept. Import the list again or add cadets to fill the class.`;
+    if (!(await uiConfirm(msg, { title: 'Remove cadets?', ok: 'Remove', danger: true }))) return;
+    let deleted = 0;
+    U.clsSel.forEach((gc) => {
+      if (S.entries.some((e) => e.gc === gc)) S.cadets[gc].active = false; // keep for history
+      else { delete S.cadets[gc]; deleted++; } // never recorded: remove completely
+    });
+    await save(); U.clsSel = null;
+    showToast(`${n} cadet${n > 1 ? 's' : ''} removed`, 'The class is kept', null); render();
   },
   openCadetList() { U.sheet = { type: 'cadetList', q: '' }; pushNav(); render(); },
   editComd(i) { U.sheet = { type: 'comd', idx: i }; pushNav(); render(); },
