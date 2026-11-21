@@ -2,7 +2,7 @@
 /* Cadet Observations — Stage 1
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.4.4';
+const APP_VERSION = '0.4.5';
 const OBS_DEFAULT = [
   'Precis not in possession', 'Writing material not in possession', 'Arriving late', 'Missing from class',
   'Asg not submitted', 'Public speaking not prepared', 'Sleeping in class', 'Not behaving'
@@ -279,8 +279,12 @@ function viewProfile() {
   const x = S.cadets[U.profile];
   const te = termEntries(x.gc);
   const all = S.entries.filter((e) => e.gc === x.gc).sort((a, b) => b.ts - a.ts);
-  const hf = U.histObs, shown = all.filter((e) => (!hf || e.obs === hf) && (!U.histTerm || e.ts >= termTs()));
-  const byType = S.settings.obs.map((o) => [o, te.filter((e) => e.obs === o).length]).filter(([, n]) => n);
+  const hasOld = all.some((e) => e.ts < termTs());
+  const scoped = U.histAll ? all : all.filter((e) => e.ts >= termTs());
+  const cnt = {}; scoped.forEach((e) => { cnt[e.obs] = (cnt[e.obs] || 0) + 1; });
+  const byType = Object.entries(cnt).sort((a, b) => b[1] - a[1]);
+  if (U.histObs && !cnt[U.histObs]) U.histObs = null;
+  const hf = U.histObs, shown = scoped.filter((e) => !hf || e.obs === hf);
   const max = Math.max(1, ...byType.map(([, n]) => n));
   const pend = all.filter((e) => e.status === 'pending').length;
   const pl = comdFor('Pl Comd', x.pl), tc = comdFor('Term Comd', x.course);
@@ -294,13 +298,21 @@ function viewProfile() {
     <main class="body">
     <div class="grid3 tiles"><div class="t"><b style="color:${te.length >= 4 ? '#A1271B' : '#1C1C1A'}">${te.length}</b><span>This term</span></div>
     <div class="t"><b>${all.length}</b><span>All time</span></div><div class="t"><b style="color:${pend ? '#7A4300' : '#1C1C1A'}">${pend}</b><span>Pending</span></div></div>
-    ${byType.length ? `<span class="label">By type · this term</span><div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:9px">${byType.map(([o, n]) =>
-      `<div class="bar" data-act="histObs" data-arg="${esc(o)}" style="cursor:pointer"><span class="n">${esc(o)}</span><span class="track"><span class="fill" style="display:block;width:${Math.round(n / max * 100)}%"></span></span><span class="c">${n}</span></div>`).join('')}</div>` : ''}
+    ${all.length ? `<div class="between"><span class="label">By type · tap to filter history</span>
+      ${hasOld ? `<span class="chips" style="gap:4px"><button class="chip sm ${U.histAll ? '' : 'on'}" data-act="histScope" data-arg="term">This term</button><button class="chip sm ${U.histAll ? 'on' : ''}" data-act="histScope" data-arg="all">All time</button></span>` : ''}</div>
+      <div class="card" style="padding:6px;display:flex;flex-direction:column;gap:2px">${byType.length ? byType.map(([o, n]) => filterBar('histObs', o, o, n, max, hf)).join('')
+        : '<span class="small" style="padding:8px">Nothing this term. Tap “All time” to see earlier terms.</span>'}</div>` : ''}
     <span class="label">Comds</span><div class="card">${comdRow('PL COMD · ' + esc(x.pl), pl)}${comdRow('TERM COMD · ' + esc(x.course), tc)}</div>
-    <div class="between"><span class="label">History</span><span class="small">Tap an entry to edit</span></div>
-    ${histFilterHtml(all)}
+    <div class="between"><span class="label">History${hf ? ' · ' + esc(hf) : ''}</span>${hf ? '<button class="chip sm" data-act="histObs" data-arg="">Show all ✕</button>' : '<span class="small">Tap an entry to edit</span>'}</div>
     <div class="list">${all.length ? (shown.length ? shown.map((e) => histHtml(e, e.ts < termTs())).join('') : '<div class="empty"><span>No entries for this filter.</span></div>') : '<div class="empty"><span>No observations recorded.</span></div>'}</div>
     </main>`;
+}
+
+// A stats row that doubles as a filter button (used on the profile and in Reports).
+function filterBar(act, arg, label, n, max, selected) {
+  const on = selected === arg, dim = selected != null && selected !== '' && !on;
+  return `<button class="fbar ${on ? 'on' : ''} ${dim ? 'dim' : ''}" data-act="${act}" data-arg="${esc(arg)}" aria-pressed="${on}">
+    <span class="n">${esc(label)}</span><span class="track"><span class="fill" style="display:block;width:${Math.round(n / max * 100)}%"></span></span><span class="c">${n}</span></button>`;
 }
 
 function histFilterHtml(all) {
@@ -416,6 +428,9 @@ function repEntries() {
   const r = U.rep, [from, to] = repRange();
   return S.entries.filter((e) => e.ts >= from && e.ts < to && (r.cls === 'all' || e.classId === r.cls));
 }
+const punKey = (e) => e.pun || 'none';
+const repMatch = (e, skip) => (skip === 'obs' || !U.rep.obs || e.obs === U.rep.obs) && (skip === 'pun' || !U.rep.pun || punKey(e) === U.rep.pun);
+const repFiltered = () => repEntries().filter((e) => repMatch(e));
 const PERIODS = [['week', 'Week'], ['month', 'Month'], ['term', 'Term'], ['all', 'All']];
 
 function viewReports() {
@@ -423,14 +438,18 @@ function viewReports() {
   if (r.cls !== 'all' && !S.classes.some((c) => c.id === r.cls)) r.cls = 'all';
   if (!S.terms.some((t) => t.id === r.term)) r.term = curTerm().id;
   const arch = S.classes.filter((c) => c.archived);
-  const es = repEntries();
-  const byObs = {}; es.forEach((e) => { byObs[e.obs] = (byObs[e.obs] || 0) + 1; });
+  const base = repEntries(), es = base.filter((e) => repMatch(e));
+  // each group's counts respect the OTHER group's filter, so choices narrow each other
+  const byObs = {}; base.filter((e) => repMatch(e, 'obs')).forEach((e) => { byObs[e.obs] = (byObs[e.obs] || 0) + 1; });
   const obsRows = Object.entries(byObs).sort((a, b) => b[1] - a[1]);
   const max = Math.max(1, ...obsRows.map(([, n]) => n));
-  const byPun = {}; es.forEach((e) => { byPun[e.pun || ''] = (byPun[e.pun || ''] || 0) + 1; });
+  const byPun = {}; base.filter((e) => repMatch(e, 'pun')).forEach((e) => { byPun[punKey(e)] = (byPun[punKey(e)] || 0) + 1; });
+  const pmax = Math.max(1, ...Object.values(byPun));
   const byCadet = {}; es.forEach((e) => { byCadet[e.gc] = (byCadet[e.gc] || 0) + 1; });
-  const top = Object.entries(byCadet).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const ranked = Object.entries(byCadet).sort((a, b) => b[1] - a[1]);
+  const top = r.allTop ? ranked : ranked.slice(0, 10);
   const pend = es.filter((e) => e.status === 'pending').length;
+  const filt = [r.obs, r.pun ? punLabel(r.pun === 'none' ? null : r.pun) : null].filter(Boolean);
   return `<header class="hdr"><div class="row"><h1>Reports</h1></div>
     <select id="repCls" aria-label="Class" style="background:#183026;color:#fff;border:0;font-weight:600">
       <option value="all" ${r.cls === 'all' ? 'selected' : ''}>All classes</option>
@@ -442,24 +461,25 @@ function viewReports() {
     <main class="body">
     <div class="grid3 tiles"><div class="t"><b>${es.length}</b><span>Observations</span></div><div class="t"><b>${Object.keys(byCadet).length}</b><span>Cadets</span></div>
     <div class="t"><b style="color:${pend ? '#7A4300' : '#1C1C1A'}">${pend}</b><span>Pending</span></div></div>
-    ${es.length ? `<span class="label">By observation</span>
-    <div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:9px">${obsRows.map(([o, n]) =>
-      `<div class="bar"><span class="n">${esc(o)}</span><span class="track"><span class="fill" style="display:block;width:${Math.round(n / max * 100)}%"></span></span><span class="c">${n}</span></div>`).join('')}</div>
-    <span class="label">Punishments</span>
-    <div class="grid2">${PUN.map((pn) => `<div class="card" style="padding:10px 12px;display:flex;justify-content:space-between;align-items:center"><span class="small" style="color:#1C1C1A">${pn.label}</span><b>${byPun[pn.id] || 0}</b></div>`).join('')}
-    <div class="card" style="padding:10px 12px;display:flex;justify-content:space-between;align-items:center;grid-column:1/-1"><span class="small" style="color:#1C1C1A">Not decided yet</span><b>${byPun[''] || 0}</b></div></div>
-    <span class="label">Most observations</span>
+    ${base.length ? `<span class="label">By observation · tap to filter</span>
+    <div class="card" style="padding:6px;display:flex;flex-direction:column;gap:2px">${obsRows.length ? obsRows.map(([o, n]) => filterBar('repObs', o, o, n, max, r.obs)).join('') : '<span class="small" style="padding:8px">None for this punishment.</span>'}</div>
+    <span class="label">Punishments · tap to filter</span>
+    <div class="card" style="padding:6px;display:flex;flex-direction:column;gap:2px">${PUN.map((pn) => [pn.id, pn.label]).concat([['none', 'Not decided yet']])
+      .filter(([k]) => byPun[k] || r.pun === k).map(([k, l]) => filterBar('repPun', k, l, byPun[k] || 0, pmax, r.pun)).join('') || '<span class="small" style="padding:8px">None for this observation.</span>'}</div>
+    <div class="between"><span class="label">${filt.length ? 'Cadets · ' + esc(filt.join(' + ')) : 'Most observations'}</span>${filt.length ? '<button class="chip sm" data-act="repClear">Clear filters ✕</button>' : ''}</div>
     <div class="list">${top.map(([gc, n], i) => { const x = S.cadets[gc] || { name: '?', pl: '' };
       return `<button class="crow" style="min-height:56px" data-act="openProfile" data-arg="${gc}"><span style="width:20px;font-weight:700;color:#5B5B55">${i + 1}</span>
-      <span class="grow"><span class="nm">${esc(x.name)}</span><span class="sub">GC ${gc} · ${esc(x.pl)}</span></span><span class="pill ${n >= 4 ? 'p-red' : n >= 2 ? 'p-amb' : 'p-grey'}">${n} obs</span></button>`; }).join('')}</div>`
+      <span class="grow"><span class="nm">${esc(x.name)}</span><span class="sub">GC ${gc} · ${esc(x.pl)}</span></span><span class="pill ${n >= 4 ? 'p-red' : n >= 2 ? 'p-amb' : 'p-grey'}">${n}${filt.length ? '×' : ' obs'}</span></button>`; }).join('') || '<div class="empty"><span>No cadets for this filter.</span></div>'}</div>
+    ${ranked.length > 10 ? `<button class="btn sm" data-act="repAllTop">${r.allTop ? 'Show top 10' : `Show all ${ranked.length} cadets`}</button>` : ''}`
     : '<div class="empty"><span>No observations in this period.</span></div>'}
+    ${filt.length ? '<span class="small">Excel export includes only the filtered entries.</span>' : ''}
     <div class="grid2"><button class="btn pri" data-act="exportXlsx" data-arg="save" ${es.length ? '' : 'disabled'}>Export to Excel</button>
     <button class="btn" data-act="exportXlsx" data-arg="share" ${es.length && canShareFiles() ? '' : 'disabled'}>Share Excel</button></div>
     </main>`;
 }
 
 function buildXlsx() {
-  const r = U.rep, es = repEntries().sort((a, b) => a.ts - b.ts);
+  const r = U.rep, es = repFiltered().sort((a, b) => a.ts - b.ts);
   const cls = (id) => S.classes.find((c) => c.id === id);
   const rows = es.map((e) => {
     const x = S.cadets[e.gc] || {}, d = new Date(e.ts), c = cls(e.classId);
@@ -481,7 +501,8 @@ function buildXlsx() {
   XLSX.utils.book_append_sheet(wb, ws1, 'Observations');
   XLSX.utils.book_append_sheet(wb, ws2, 'By cadet');
   const c = r.cls === 'all' ? null : cls(r.cls);
-  const tag = (c ? `${c.subject}_${c.course}_Gp${c.gp}` : 'AllClasses').replace(/[^A-Za-z0-9]+/g, '_');
+  const ftag = [r.obs, r.pun ? punLabel(r.pun === 'none' ? null : r.pun) : null].filter(Boolean).join('_');
+  const tag = ((c ? `${c.subject}_${c.course}_Gp${c.gp}` : 'AllClasses') + (ftag ? '_' + ftag : '')).replace(/[^A-Za-z0-9]+/g, '_');
   const perName = r.period === 'term' ? (S.terms.find((t) => t.id === r.term) || curTerm()).name : r.period;
   const name = `CadetObs_${tag}_${perName.replace(/[^A-Za-z0-9]+/g, '_')}_${today()}.xlsx`;
   const data = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
@@ -944,8 +965,9 @@ const A = {
     U.batchSel.clear();
     render();
   },
-  histObs(o) { U.histObs = o || null; render(); },
-  openProfile(gc) { U.histObs = null; U.histTerm = false; U.profileFrom = U.view === 'profile' ? U.profileFrom : U.view; U.profile = +gc; U.view = 'profile'; U.cadet = null; pushNav(); render(); window.scrollTo(0, 0); },
+  histObs(o) { U.histObs = o && o !== U.histObs ? o : null; render(); },
+  histScope(k) { U.histAll = k === 'all'; render(); },
+  openProfile(gc) { U.histObs = null; U.histAll = false; U.profileFrom = U.view === 'profile' ? U.profileFrom : U.view; U.profile = +gc; U.view = 'profile'; U.cadet = null; pushNav(); render(); window.scrollTo(0, 0); },
   editEntry(id) { U.sheet = { type: 'edit', id }; pushNav(); render(); },
   async saveEdit(id) {
     const e = S.entries.find((y) => y.id === id);
@@ -1061,6 +1083,10 @@ const A = {
     S.comds.splice(+U.sheet.idx, 1); await save(); U.sheet = null; silentBack();
   },
   repPeriod(k) { U.rep.period = k; render(); },
+  repObs(o) { U.rep.obs = U.rep.obs === o ? null : o; U.rep.allTop = false; render(); },
+  repPun(k) { U.rep.pun = U.rep.pun === k ? null : k; U.rep.allTop = false; render(); },
+  repClear() { U.rep.obs = null; U.rep.pun = null; render(); },
+  repAllTop() { U.rep.allTop = !U.rep.allTop; render(); },
   openNewTerm() { U.sheet = { type: 'newTerm' }; pushNav(); render(); },
   openArchived() { U.sheet = { type: 'archived' }; pushNav(); render(); },
   async unarchive(id) {
