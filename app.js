@@ -2,7 +2,7 @@
 /* Cadet Observations — Stage 1
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.2.0';
+const APP_VERSION = '0.3.0';
 const OBS_DEFAULT = [
   'Precis not in possession', 'Writing material not in possession', 'Arriving late', 'Missing from class',
   'Asg not submitted', 'Public speaking not prepared', 'Sleeping in class', 'Not behaving'
@@ -96,12 +96,14 @@ const ICON = {
 
 /* ---------- render ---------- */
 function render() {
+  if (U.lock) { $('#app').innerHTML = lockHtml(); return; }
   let html = '';
   if (U.view === 'record') html = U.cadet ? viewCadet() : viewRecord();
   else if (U.view === 'profile') html = viewProfile();
   else if (U.view === 'pending') html = viewPending();
   else if (U.view === 'reports') html = viewReports();
   else if (U.view === 'settings') html = viewSettings();
+  else if (U.view === 'class') html = viewClass();
   html += navHtml();
   if (U.toast) html += toastHtml();
   if (U.sheet) html += sheetHtml();
@@ -134,19 +136,18 @@ function viewRecord() {
   const c = curClass();
   let body;
   if (!c) {
-    body = `<div class="empty"><b>Set up your first class</b><span>A class is Subject + Course + Gp, e.g. ICT · 158 L/C · Gp A. Add the class, then add cadets by hand — or import an Excel/CSV list.</span>
-      <button class="btn pri" data-act="openClasses">Add class</button>
-      <button class="btn" data-act="pickFile">Import cadet list</button></div>`;
+    body = `<div class="empty"><b>Set up your first class</b><span>A class is Subject + Course + Gp, e.g. ICT · 158 L/C · Gp A. Create the class, then import or add its cadets.</span>
+      <button class="btn pri" data-act="openClasses">Add class</button></div>`;
   } else {
     const cadets = classCadets(c);
     const pls = ['All', ...new Set(cadets.map((x) => x.pl))];
     if (!pls.includes(U.pl)) U.pl = 'All';
-    body = `<label class="search">${ICON.search}<input id="q" type="text" inputmode="search" placeholder="Last digits of GC No, or name" aria-label="Search cadet" value="${esc(U.q)}"></label>
+ body = backupBanner() + `<label class="search">${ICON.search}<input id="q" type="text" inputmode="search" placeholder="Last digits of GC No, or name" aria-label="Search cadet" value="${esc(U.q)}"></label>
       ${U.mode === 'batch' ? batchObsHtml() : ''}
       <div class="chips">${pls.map((p) => `<button class="chip ${U.pl === p ? 'on' : ''}" data-act="pl" data-arg="${esc(p)}">${esc(p)}</button>`).join('')}
       <span style="flex:1;text-align:right" class="small">${cadets.length} cadets</span></div>
       <div id="list" class="list">${listHtml()}</div>
-      ${U.mode === 'cadet' ? '<button class="btn dashed" data-act="newCadet">+ Add cadet to this class</button>' : ''}`;
+`;
     if (U.mode === 'batch') body += batchFootHtml();
   }
   return `<header class="hdr">${classHeader('Record')}
@@ -163,7 +164,8 @@ function filteredCadets() {
 function listHtml() {
   const rows = filteredCadets();
   if (!rows.length) return classCadets(curClass()).length ? '<div class="empty"><span>No cadet matches.</span></div>'
-    : '<div class="empty"><b>No cadets in this class yet</b><span>Tap “+ Add cadet” below, or import a list from Settings.</span></div>';
+    : `<div class="empty"><b>No cadets in this class yet</b><span>Import the class list from Excel/CSV, or add cadets one by one.</span>
+      <button class="btn pri" data-act="openClass" data-arg="${curClass().id}">Import / add cadets</button></div>`;
   if (U.mode === 'batch') {
     return rows.map((x) => {
       const on = U.batchSel.has(x.gc);
@@ -271,6 +273,41 @@ function waLink(phone, text) {
   return `https://wa.me/${p}?text=${encodeURIComponent(text)}`;
 }
 
+function classListRows(c) {
+  const q = (U.cq || '').trim().toLowerCase();
+  const rows = Object.values(S.cadets).filter((x) => x.course === c.course && x.gp === c.gp &&
+    (!q || String(x.gc).includes(q) || x.name.toLowerCase().includes(q) || x.pl.toLowerCase().includes(q)))
+    .sort((a, b) => (b.active - a.active) || a.pl.localeCompare(b.pl) || a.gc - b.gc);
+  return rows.length ? rows.map((x) => `<button class="crow" style="min-height:54px;${x.active ? '' : 'opacity:.55'}" data-act="editCadet" data-arg="${x.gc}">
+    <span class="grow"><span class="nm">${esc(x.name)}${x.tag ? `<span class="tag">${esc(x.tag)}</span>` : ''}${x.appt ? `<span class="tag" style="background:#EFEDE5;color:#3F3F3A">${esc(x.appt)}</span>` : ''}${x.active ? '' : '<span class="pill p-grey">Inactive</span>'}</span>
+    <span class="sub">GC ${x.gc} · ${esc(x.pl)}</span></span></button>`).join('')
+    : `<div class="empty"><span>${q ? 'No cadet matches.' : 'No cadets yet.'}</span></div>`;
+}
+
+function viewClass() {
+  const c = S.classes.find((y) => y.id === U.classId);
+  if (!c) { U.view = 'settings'; return viewSettings(); }
+  const act = Object.values(S.cadets).filter((x) => x.active && x.course === c.course && x.gp === c.gp);
+  const pls = {}; act.forEach((x) => { pls[x.pl] = (pls[x.pl] || 0) + 1; });
+  const shared = S.classes.filter((y) => y.id !== c.id && y.course === c.course && y.gp === c.gp);
+  const isCur = c.id === S.settings.currentClass;
+  return `<header class="hdr"><div class="row" style="justify-content:flex-start"><button class="back" data-act="back" aria-label="Back">${ICON.back}</button>
+    <span class="grow"><span class="kicker">Class</span><span style="font-size:19px;font-weight:700">${esc(className(c))}</span></span></div></header>
+    <main class="body">
+    <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
+      <b style="font-size:15px">${act.length} cadet${act.length === 1 ? '' : 's'}${Object.keys(pls).length ? ' · ' + Object.entries(pls).sort().map(([k, v]) => `${esc(k)} (${v})`).join(', ') : ''}</b>
+      <div class="grid2"><button class="btn pri sm" data-act="pickFile" data-arg="${c.id}">Import list</button><button class="btn sm" data-act="newCadet">+ Add cadet</button></div>
+      <span class="small">Excel/CSV with columns GC No, Name, Pl (Appt optional). If the file also has Course and Gp, only rows for ${esc(c.course)} Gp ${esc(c.gp)} are taken. Importing again updates the list — nothing recorded is lost.</span>
+      ${shared.length ? `<span class="small">Same cadets as: ${shared.map((y) => esc(className(y))).join(', ')}</span>` : ''}
+    </div>
+    ${isCur ? '' : `<button class="btn" data-act="useClass" data-arg="${c.id}">Use this class for recording</button>`}
+    <span class="label">Cadets</span>
+    <label class="search">${ICON.search}<input id="ccq" type="text" placeholder="GC No, name or Pl" value="${esc(U.cq || '')}"></label>
+    <div id="clsList" class="list">${classListRows(c)}</div>
+    <button class="btn danger" data-act="delClass" data-arg="${c.id}">Remove this class</button>
+    </main>`;
+}
+
 function viewPending() {
   const list = S.entries.filter((e) => e.status === 'pending').sort((a, b) => b.ts - a.ts);
   const card = (e) => {
@@ -296,40 +333,179 @@ function viewPending() {
   return `<header class="hdr"><span class="kicker">All classes · ${list.length} to do</span><h1>Pending actions</h1></header><main class="body">${body}</main>`;
 }
 
+/* ---------- reports ---------- */
+function repRange() {
+  const r = U.rep, now = new Date();
+  if (r.period === 'week') { const d = new Date(now); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.getTime(); }
+  if (r.period === 'month') return new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  if (r.period === 'all') return 0;
+  return termTs();
+}
+function repEntries() {
+  const r = U.rep, from = repRange();
+  return S.entries.filter((e) => e.ts >= from && (r.cls === 'all' || e.classId === r.cls));
+}
+const PERIODS = [['week', 'Week'], ['month', 'Month'], ['term', 'Term'], ['all', 'All']];
+
 function viewReports() {
-  return `<header class="hdr"><h1>Reports</h1></header><main class="body"><div class="empty"><b>Coming in Stage 3</b>
-    <span>Week / month / term summaries, most observations, punishments given and Export to Excel.</span></div></main>`;
+  const r = U.rep || (U.rep = { cls: S.settings.currentClass || 'all', period: 'term' });
+  if (r.cls !== 'all' && !S.classes.some((c) => c.id === r.cls)) r.cls = 'all';
+  const es = repEntries();
+  const byObs = {}; es.forEach((e) => { byObs[e.obs] = (byObs[e.obs] || 0) + 1; });
+  const obsRows = Object.entries(byObs).sort((a, b) => b[1] - a[1]);
+  const max = Math.max(1, ...obsRows.map(([, n]) => n));
+  const byPun = {}; es.forEach((e) => { byPun[e.pun || ''] = (byPun[e.pun || ''] || 0) + 1; });
+  const byCadet = {}; es.forEach((e) => { byCadet[e.gc] = (byCadet[e.gc] || 0) + 1; });
+  const top = Object.entries(byCadet).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const pend = es.filter((e) => e.status === 'pending').length;
+  return `<header class="hdr"><div class="row"><h1>Reports</h1></div>
+    <select id="repCls" aria-label="Class" style="background:#183026;color:#fff;border:0;font-weight:600">
+      <option value="all" ${r.cls === 'all' ? 'selected' : ''}>All classes</option>
+      ${S.classes.map((c) => `<option value="${c.id}" ${r.cls === c.id ? 'selected' : ''}>${esc(className(c))}</option>`).join('')}</select>
+    <div class="seg">${PERIODS.map(([k, l]) => `<button class="${r.period === k ? 'on' : ''}" data-act="repPeriod" data-arg="${k}">${l}</button>`).join('')}</div></header>
+    <main class="body">
+    <div class="grid3 tiles"><div class="t"><b>${es.length}</b><span>Observations</span></div><div class="t"><b>${Object.keys(byCadet).length}</b><span>Cadets</span></div>
+    <div class="t"><b style="color:${pend ? '#7A4300' : '#1C1C1A'}">${pend}</b><span>Pending</span></div></div>
+    ${es.length ? `<span class="label">By observation</span>
+    <div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:9px">${obsRows.map(([o, n]) =>
+      `<div class="bar"><span class="n">${esc(o)}</span><span class="track"><span class="fill" style="display:block;width:${Math.round(n / max * 100)}%"></span></span><span class="c">${n}</span></div>`).join('')}</div>
+    <span class="label">Punishments</span>
+    <div class="grid2">${PUN.map((pn) => `<div class="card" style="padding:10px 12px;display:flex;justify-content:space-between;align-items:center"><span class="small" style="color:#1C1C1A">${pn.label}</span><b>${byPun[pn.id] || 0}</b></div>`).join('')}
+    <div class="card" style="padding:10px 12px;display:flex;justify-content:space-between;align-items:center;grid-column:1/-1"><span class="small" style="color:#1C1C1A">Not decided yet</span><b>${byPun[''] || 0}</b></div></div>
+    <span class="label">Most observations</span>
+    <div class="list">${top.map(([gc, n], i) => { const x = S.cadets[gc] || { name: '?', pl: '' };
+      return `<button class="crow" style="min-height:56px" data-act="openProfile" data-arg="${gc}"><span style="width:20px;font-weight:700;color:#5B5B55">${i + 1}</span>
+      <span class="grow"><span class="nm">${esc(x.name)}</span><span class="sub">GC ${gc} · ${esc(x.pl)}</span></span><span class="pill ${n >= 4 ? 'p-red' : n >= 2 ? 'p-amb' : 'p-grey'}">${n} obs</span></button>`; }).join('')}</div>`
+    : '<div class="empty"><span>No observations in this period.</span></div>'}
+    <div class="grid2"><button class="btn pri" data-act="exportXlsx" data-arg="save" ${es.length ? '' : 'disabled'}>Export to Excel</button>
+    <button class="btn" data-act="exportXlsx" data-arg="share" ${es.length && canShareFiles() ? '' : 'disabled'}>Share Excel</button></div>
+    </main>`;
+}
+
+function buildXlsx() {
+  const r = U.rep, es = repEntries().sort((a, b) => a.ts - b.ts);
+  const cls = (id) => S.classes.find((c) => c.id === id);
+  const rows = es.map((e) => {
+    const x = S.cadets[e.gc] || {}, d = new Date(e.ts), c = cls(e.classId);
+    return { Date: d.toLocaleDateString('en-GB'), Time: d.toTimeString().slice(0, 5), 'GC No': e.gc, Name: x.name || '', Pl: x.pl || '', Course: x.course || '', Gp: x.gp || '',
+      Class: c ? className(c) : '', Observation: e.obs, Punishment: punLabel(e.pun), Status: e.status === 'pending' ? 'Pending' : 'Done', Note: e.note || '' };
+  });
+  const obsList = [...new Set(es.map((e) => e.obs))];
+  const per = {};
+  es.forEach((e) => { const k = e.gc; per[k] = per[k] || { total: 0 }; per[k].total++; per[k][e.obs] = (per[k][e.obs] || 0) + 1; });
+  const summary = Object.entries(per).sort((a, b) => b[1].total - a[1].total).map(([gc, v]) => {
+    const x = S.cadets[gc] || {};
+    const row = { 'GC No': +gc, Name: x.name || '', Pl: x.pl || '', Course: x.course || '', Gp: x.gp || '', Total: v.total };
+    obsList.forEach((o) => { row[o] = v[o] || 0; });
+    return row;
+  });
+  const wb = XLSX.utils.book_new();
+  const ws1 = XLSX.utils.json_to_sheet(rows); ws1['!cols'] = [10, 6, 8, 28, 8, 9, 4, 24, 28, 18, 8, 30].map((w) => ({ wch: w }));
+  const ws2 = XLSX.utils.json_to_sheet(summary); ws2['!cols'] = [{ wch: 8 }, { wch: 28 }, { wch: 8 }, { wch: 9 }, { wch: 4 }, { wch: 6 }].concat(obsList.map(() => ({ wch: 14 })));
+  XLSX.utils.book_append_sheet(wb, ws1, 'Observations');
+  XLSX.utils.book_append_sheet(wb, ws2, 'By cadet');
+  const c = r.cls === 'all' ? null : cls(r.cls);
+  const tag = (c ? `${c.subject}_${c.course}_Gp${c.gp}` : 'AllClasses').replace(/[^A-Za-z0-9]+/g, '_');
+  const name = `CadetObs_${tag}_${r.period}_${today()}.xlsx`;
+  const data = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+  return new File([data], name, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+
+/* ---------- files out ---------- */
+function canShareFiles() {
+  try { return !!(navigator.canShare && navigator.canShare({ files: [new File(['x'], 'x.txt', { type: 'text/plain' })] })); } catch (e) { return false; }
+}
+function downloadFile(file) {
+  const url = URL.createObjectURL(file), a = document.createElement('a');
+  a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+async function shareFile(file) {
+  try { await navigator.share({ files: [file], title: file.name }); return true; }
+  catch (e) { if (e.name !== 'AbortError') alert('Could not share: ' + e.message); return false; }
+}
+
+/* ---------- backup ---------- */
+function backupFile() {
+  const data = JSON.stringify({ app: 'cadet-obs', v: 1, exported: Date.now(), state: S });
+  return new File([data], `CadetObs_backup_${today()}.json`, { type: 'application/json' });
+}
+const daysSince = (ts) => ts ? Math.floor((Date.now() - ts) / 86400000) : null;
+function backupBanner() {
+  if (!S.entries.length) return '';
+  const d = daysSince(S.settings.lastBackup);
+  if (d !== null && d < 7) return '';
+  return `<div class="warn" style="display:flex;align-items:center;gap:10px"><span style="flex:1">${d === null ? 'No backup yet.' : `Last backup ${d} days ago.`} Save a backup so your records are safe if the phone is lost or reset.</span>
+    <button class="btn sm" style="flex:none" data-act="backup" data-arg="save">Back up</button></div>`;
 }
 
 function viewSettings() {
-  const cadets = Object.values(S.cadets);
-  const courses = {};
-  cadets.forEach((x) => { const k = x.course; courses[k] = courses[k] || { a: 0, i: 0, gps: new Set() }; x.active ? courses[k].a++ : courses[k].i++; courses[k].gps.add(x.gp); });
+  const act = Object.values(S.cadets).filter((x) => x.active).length;
+  const lb = S.settings.lastBackup, d = daysSince(lb);
   return `<header class="hdr"><span class="kicker">Set up once</span><h1>Settings</h1></header><main class="body">
-    <span class="label">Cadet list</span>
-    <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
-      <b style="font-size:15px">${cadets.filter((x) => x.active).length} active cadets · ${Object.keys(courses).length} course${Object.keys(courses).length === 1 ? '' : 's'}</b>
-      ${Object.entries(courses).sort().map(([k, v]) => `<span class="small">${esc(k)} — Gp ${[...v.gps].sort().join(', ')} · ${v.a} active${v.i ? ` · ${v.i} inactive` : ''}</span>`).join('')}
-      ${S.lastImport ? `<span class="small">Last import: ${esc(S.lastImport.file)} · ${esc(fmtWhen(S.lastImport.ts))}</span>` : ''}
-      <button class="btn pri" data-act="pickFile">Import Excel / CSV</button>
-      <div class="grid2"><button class="btn sm" data-act="newCadet">+ Add cadet</button><button class="btn sm" data-act="openCadetList">View / edit cadets</button></div>
-      <span class="small">Import one course or several at a time. Cadets are matched by GC No — nothing recorded is lost.</span>
-    </div>
-    <span class="label">Classes</span>
-    <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:8px">
-      <span style="font-size:15px;font-weight:600">${S.classes.length} class${S.classes.length === 1 ? '' : 'es'}</span>
-      <button class="btn" data-act="openClasses">Manage classes</button></div>
+    <div class="between"><span class="label">My classes</span><button class="chip sm" style="border:0;color:#23402F" data-act="openClasses">+ Add class</button></div>
+    <div class="card" style="overflow:hidden">
+      ${S.classes.length ? S.classes.map((c) => { const n = classCadets(c).length;
+        return `<button class="crow" style="border:0;border-bottom:1px solid #EFEDE5;border-radius:0" data-act="openClass" data-arg="${c.id}">
+        <span class="grow"><span class="nm">${esc(className(c))}${c.id === S.settings.currentClass ? '<span class="pill p-ok">Recording</span>' : ''}</span>
+        <span class="sub">${n} cadet${n === 1 ? '' : 's'} · tap to import / add / edit</span></span><span aria-hidden="true">›</span></button>`; }).join('')
+      : '<div style="padding:14px" class="small">No classes yet. Tap “+ Add class”.</div>'}</div>
+    <button class="btn sm" data-act="openCadetList">Search all cadets (${act} active)</button>
+
     <span class="label">Term</span>
     <label class="card field" style="padding:14px"><span>Term start date — “1st / 2nd time” counts start from here</span>
       <input type="date" id="termStart" value="${esc(S.settings.termStart)}"></label>
+
     <div class="between"><span class="label">Comds directory</span><button class="chip sm" style="border:0;color:#23402F" data-act="editComd" data-arg="new">+ Add</button></div>
     <div class="card" style="overflow:hidden">
       ${S.comds.length ? S.comds.slice().sort((a, b) => a.role.localeCompare(b.role) || a.key.localeCompare(b.key)).map((m) => `<button class="crow" style="border:0;border-bottom:1px solid #EFEDE5;border-radius:0" data-act="editComd" data-arg="${S.comds.indexOf(m)}">
         <span style="width:84px;font-size:11px;font-weight:700;color:${m.role === 'Term Comd' ? '#1F3A5F' : '#23402F'}">${m.role === 'Term Comd' ? 'TERM' : 'PL'} · ${esc(m.key)}</span>
         <span class="grow"><span style="font-size:14px;font-weight:600">${esc([m.rank, m.name].filter(Boolean).join(' '))}</span><span class="small">${esc([m.unit, m.phone].filter(Boolean).join(' · ') || 'No phone saved')}</span></span></button>`).join('')
-      : '<div style="padding:14px" class="small">None yet. Tap “+ Add”, or fill the Comds sheet in the template and import it.</div>'}</div>
+      : '<div style="padding:14px" class="small">None yet. Tap “+ Add”, or include a Comds sheet in a class import file.</div>'}</div>
+
+    <span class="label">Backup &amp; restore</span>
+    <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
+      <span style="font-size:14px;font-weight:600;color:${d === null || d >= 7 ? '#A1271B' : '#23402F'}">${lb ? `Last backup: ${esc(fmtWhen(lb))}` : 'No backup yet'}</span>
+      <div class="grid2"><button class="btn sm pri" data-act="backup" data-arg="save">Save backup file</button>
+      <button class="btn sm" data-act="backup" data-arg="share" ${canShareFiles() ? '' : 'disabled'}>Share backup</button></div>
+      <button class="btn sm" data-act="pickRestore">Restore from backup…</button>
+      <span class="small">The backup is one .json file with everything (cadets, classes, records, Comds). Keep it in Google Drive or send it to yourself. Restoring replaces all data on this phone.</span>
+    </div>
+
+    <span class="label">Security</span>
+    <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
+      <span style="font-size:14px;font-weight:600">PIN lock: ${S.settings.pinHash ? 'On' : 'Off'}</span>
+      ${S.settings.pinHash ? '<div class="grid2"><button class="btn sm" data-act="pinSetup">Change PIN</button><button class="btn sm" data-act="pinOff">Turn off</button></div>'
+        : '<button class="btn sm pri" data-act="pinSetup">Set a 4-digit PIN</button>'}
+      <span class="small">Asked when the app opens and after 1 minute in the background. If you forget the PIN, the only way in is to erase all data — keep a backup.</span>
+    </div>
+
+    <button class="btn danger" data-act="eraseAll">Erase all data on this phone</button>
     <span class="small" style="text-align:center;padding-top:8px">Cadet Obs v${APP_VERSION} · data stored only on this phone</span>
     </main>`;
+}
+
+/* ---------- PIN ---------- */
+async function hashPin(pin) {
+  const salt = S.settings.pinSalt || (S.settings.pinSalt = uid());
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + ':' + pin));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+function lockHtml() {
+  const L = U.lock;
+  const dots = [0, 1, 2, 3].map((i) => `<span style="width:16px;height:16px;border-radius:8px;border:2px solid #fff;background:${i < L.pin.length ? '#fff' : 'transparent'}"></span>`).join('');
+  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'];
+  const title = L.mode === 'unlock' ? 'Enter PIN' : L.mode === 'set1' ? 'Choose a 4-digit PIN' : 'Enter the PIN again';
+  return `<div style="position:fixed;inset:0;background:#23402F;color:#fff;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:24px">
+    <img src="icons/icon-192.png" alt="" width="64" height="64" style="border-radius:16px">
+    <b style="font-size:20px">${title}</b>
+    <div style="display:flex;gap:16px">${dots}</div>
+    <span style="min-height:20px;color:#F7C873;font-size:14px">${esc(L.msg || '')}</span>
+    <div style="display:grid;grid-template-columns:repeat(3,76px);gap:14px">${keys.map((k) => k === '' ? '<span></span>'
+      : `<button data-act="pinKey" data-arg="${k}" aria-label="${k === '⌫' ? 'Delete' : k}" style="height:76px;border-radius:38px;border:0;background:${k === '⌫' ? 'transparent' : '#183026'};color:#fff;font-size:26px;font-weight:600">${k}</button>`).join('')}</div>
+    ${L.mode === 'unlock' ? '<button data-act="forgotPin" style="border:0;background:transparent;color:#D9E3DA;font-size:14px;height:44px">Forgot PIN?</button>'
+      : '<button data-act="pinCancel" style="border:0;background:transparent;color:#D9E3DA;font-size:14px;height:44px">Cancel</button>'}
+  </div>`;
 }
 
 /* ---------- sheets ---------- */
@@ -345,18 +521,23 @@ function sheetHtml() {
   return `<div class="scrim" data-act="scrim"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${inner}</div></div>`;
 }
 
+function classHint(f) {
+  const found = Object.values(S.cadets).filter((x) => x.active && x.course === f.course && x.gp === f.gp);
+  const pls = [...new Set(found.map((x) => x.pl))].join(', ');
+  return f.course ? (found.length ? `${found.length} cadets already in the app for ${esc(f.course)} Gp ${esc(f.gp)} (${esc(pls)}) — they will be in this class.`
+    : 'Next you will import or add the cadets of this class.') : 'Type the course, e.g. 158 L/C.';
+}
+
 function classesSheet() {
   const act = Object.values(S.cadets).filter((x) => x.active);
   const courses = [...new Set(act.map((x) => x.course))].sort();
   const f = U.sheet.form || (U.sheet.form = { subject: '', course: courses[0] || '', gp: 'A' });
-  const found = act.filter((x) => x.course === f.course && x.gp === f.gp);
-  const pls = [...new Set(found.map((x) => x.pl))].join(', ');
   const rows = S.classes.map((c) => {
     const on = c.id === S.settings.currentClass, n = classCadets(c).length;
     const pl = [...new Set(classCadets(c).map((x) => x.pl))].join(', ');
     return `<div style="display:flex;gap:6px;align-items:center"><button class="crow ${on ? 'sel' : ''}" data-act="pickClass" data-arg="${c.id}">
       <span class="grow"><span class="nm" style="font-size:16px">${esc(className(c))}</span><span class="sub">${esc(pl || 'no cadets')} · ${n} cadets</span></span>${on ? '✓' : ''}</button>
-      <button class="x" data-act="delClass" data-arg="${c.id}" aria-label="Remove class ${esc(className(c))}">×</button></div>`;
+      <button class="btn sm" style="flex:none" data-act="openClass" data-arg="${c.id}">Cadets</button></div>`;
   }).join('');
   return `<h2>My classes</h2>${rows || '<span class="small">No classes yet.</span>'}
     <div style="border-top:1px solid #E6E4DC;padding-top:14px;display:flex;flex-direction:column;gap:10px">
@@ -365,7 +546,7 @@ function classesSheet() {
     <div class="grid2"><label class="field"><span>Course</span><input type="text" id="fCourse" list="courseList" placeholder="e.g. 158 L/C" value="${esc(f.course)}"></label>
     <label class="field"><span>Group</span><select id="fGp">${['A', 'B'].map((g) => `<option value="${g}" ${g === f.gp ? 'selected' : ''}>Gp ${g}</option>`).join('')}</select></label></div>
     <datalist id="courseList">${courses.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
-    <span class="small">${f.course ? (found.length ? `${found.length} cadets found · ${esc(pls)}` : 'No cadets yet for this course and group — you can add them by hand after creating the class.') : 'Type the course as it appears in your list, e.g. 158 L/C.'}</span>
+    <span class="small" id="fHint">${classHint(f)}</span>
     <button class="btn pri" data-act="addClass">Add class</button>
     </div><button class="btn" data-act="closeSheet">Close</button>`;
 }
@@ -384,7 +565,7 @@ function editSheet(id) {
 }
 
 function cadetSheet() {
-  const s = U.sheet, x = s.gc ? S.cadets[s.gc] : null, c = curClass();
+  const s = U.sheet, x = s.gc ? S.cadets[s.gc] : null, c = S.classes.find((y) => y.id === s.classId) || curClass();
   const d = x || s.prefill || { gc: '', name: '', tag: '', pl: '', appt: '', course: c ? c.course : '', gp: c ? c.gp : 'A', active: true };
   const all = Object.values(S.cadets);
   const pls = [...new Set(all.filter((y) => !d.course || y.course === d.course).map((y) => y.pl))].sort();
@@ -394,8 +575,10 @@ function cadetSheet() {
     <label class="field"><span>Name — add (PN), (PAF) etc. at the end if needed</span><input type="text" id="cName" value="${esc(d.name ? d.name + (d.tag ? ` (${d.tag})` : '') : '')}" autocapitalize="words"></label>
     <div class="grid2"><label class="field"><span>Pl</span><input type="text" id="cPl" list="plList" value="${esc(d.pl)}" autocapitalize="characters"></label>
     <label class="field"><span>Appt (blank = GC)</span><input type="text" id="cAppt" value="${esc(d.appt)}" placeholder="e.g. CSUO" autocapitalize="characters"></label></div>
-    <div class="grid2"><label class="field"><span>Course</span><input type="text" id="cCourse" list="cCourseList" value="${esc(d.course)}"></label>
+    ${x ? `<div class="grid2"><label class="field"><span>Course</span><input type="text" id="cCourse" list="cCourseList" value="${esc(d.course)}"></label>
     <label class="field"><span>Group</span><select id="cGp">${['A', 'B'].map((g) => `<option value="${g}" ${g === d.gp ? 'selected' : ''}>Gp ${g}</option>`).join('')}</select></label></div>
+    <span class="small">Changing course or group moves the cadet to that class.</span>`
+    : `<div class="hint ok"><span>Adding to <b>${esc(className(c))}</b></span></div>`}
     <datalist id="plList">${pls.map((v) => `<option value="${esc(v)}">`).join('')}</datalist>
     <datalist id="cCourseList">${courses.map((v) => `<option value="${esc(v)}">`).join('')}</datalist>
     ${x ? `<label class="check"><input type="checkbox" id="cActive" ${x.active ? 'checked' : ''}><span>Active (untick if relegated / withdrawn — history is kept)</span></label>` : ''}
@@ -414,7 +597,7 @@ function cadetListRows() {
     : '<div class="empty"><span>No cadets.</span></div>';
 }
 function cadetListSheet() {
-  return `<div class="between"><h2>All cadets</h2><button class="btn sm pri" data-act="newCadet">+ Add</button></div>
+  return `<h2>All cadets</h2><span class="small">To add cadets, open a class and use Import or + Add cadet.</span>
     <label class="search">${ICON.search}<input id="cq" type="text" placeholder="GC No, name, Pl or course" value="${esc(U.sheet.q || '')}"></label>
     <div id="clist" class="list">${cadetListRows()}</div><button class="btn" data-act="closeSheet">Close</button>`;
 }
@@ -436,15 +619,15 @@ function comdSheet() {
 }
 
 function importSheet() {
-  const p = U.preview;
-  const courseRows = Object.entries(p.byCourse).sort().map(([k, v]) => `<tr><td><b>${esc(k)}</b></td><td>${v.add}</td><td>${v.upd}</td><td>${v.same}</td><td>${v.missing.length}</td></tr>`).join('');
-  const missingTotal = Object.values(p.byCourse).reduce((a, v) => a + v.missing.length, 0);
-  return `<h2>Import preview</h2><span class="small">${esc(p.file)} · ${p.rows.length} cadet rows${p.comds.length ? ` · ${p.comds.length} Comds` : ''}</span>
+  const p = U.preview, cls = S.classes.find((c) => c.id === p.classId);
+  return `<h2>Import into class</h2>
+    <span class="small"><b style="color:#1C1C1A;font-size:14px">${esc(className(cls))}</b><br>${esc(p.file)} · ${p.rows.length} cadet${p.rows.length === 1 ? '' : 's'} for this class${p.comds.length ? ` · ${p.comds.length} Comds` : ''}</span>
     ${p.errors.map((m) => `<div class="err">${esc(m)}</div>`).join('')}
     ${p.warnings.map((m) => `<div class="warn">${esc(m)}</div>`).join('')}
-    ${p.rows.length ? `<table class="prev"><thead><tr><th>Course</th><th>New</th><th>Updated</th><th>Same</th><th>Not in file</th></tr></thead><tbody>${courseRows}</tbody></table>
-    <span class="small">Other courses already in the app are not touched.</span>
-    ${missingTotal ? `<label class="check"><input type="checkbox" id="markInactive"><span>Mark the ${missingTotal} cadet${missingTotal > 1 ? 's' : ''} “not in file” as inactive (relegated / withdrawn). Their history is kept.</span></label>` : ''}` : ''}
+    ${p.rows.length ? `<table class="prev"><thead><tr><th>New</th><th>Updated</th><th>Same</th><th>Not in file</th></tr></thead>
+    <tbody><tr><td><b>${p.add}</b></td><td>${p.upd}</td><td>${p.same}</td><td>${p.missing.length}</td></tr></tbody></table>
+    ${p.moved ? `<span class="small">${p.moved} of the updated cadets move into this class from another course or group.</span>` : ''}
+    ${p.missing.length ? `<label class="check"><input type="checkbox" id="markInactive"><span>Mark the ${p.missing.length} cadet${p.missing.length > 1 ? 's' : ''} of this class “not in file” as inactive (relegated / withdrawn). Their history is kept.</span></label>` : ''}` : ''}
     <div class="grid2"><button class="btn pri" data-act="applyImport" ${p.rows.length || p.comds.length ? '' : 'disabled'}>Import</button><button class="btn" data-act="closeSheet">Cancel</button></div>`;
 }
 
@@ -473,41 +656,52 @@ function parseName(raw) {
   if (m) { tag = m[1].trim().toUpperCase(); n = n.slice(0, m.index).trim(); }
   return { name: n === n.toUpperCase() ? titleCase(n) : n, tag };
 }
-function normGp(g) { const s = norm(g).toUpperCase().replace(/^GP\.?\s*|^GROUP\s*/, ''); return s; }
+function normGp(g) { return norm(g).toUpperCase().replace(/^GP\.?\s*|^GROUP\s*/, ''); }
 function normCourse(c) { return norm(c).replace(/\s+/g, ' ').replace(/l\/c/i, 'L/C'); }
 
-function buildPreview(wb, file) {
+// Builds an import preview for ONE class. Course/Gp columns are optional:
+// rows without them go into this class; rows for another course/group are skipped.
+function buildPreview(wb, file, cls) {
   const errors = [], warnings = [], rows = [], comds = [];
   const cname = wb.SheetNames.find((n) => /cadet/i.test(n)) || wb.SheetNames.find((n) => !/how|comd/i.test(n)) || wb.SheetNames[0];
   const aoa = XLSX.utils.sheet_to_json(wb.Sheets[cname], { header: 1, defval: '', raw: true });
-  let hi = aoa.findIndex((r) => { const c = findCols(r); return c.gc != null && c.name != null; });
-  if (hi < 0) errors.push(`Could not find the heading row in sheet “${cname}”. Headings needed: GC No, Name, Pl, Course, Gp (Appt optional).`);
+  const hi = aoa.findIndex((r) => { const c = findCols(r); return c.gc != null && c.name != null; });
+  if (hi < 0) errors.push(`Could not find the heading row in sheet “${cname}”. Headings needed: GC No, Name, Pl (Appt, Course, Gp optional).`);
   else {
     const cols = findCols(aoa[hi]);
-    ['pl', 'course', 'gp'].forEach((f) => { if (cols[f] == null) errors.push(`Column “${f === 'gp' ? 'Gp' : f === 'pl' ? 'Pl' : 'Course'}” is missing.`); });
+    if (cols.pl == null) errors.push('Column “Pl” is missing.');
+    if (cols.course != null) { // Excel drag-fill guard: many different courses with 1–2 cadets each
+      const cc = {};
+      aoa.slice(hi + 1).forEach((r) => { const v = normCourse(r[cols.course]); if (v) cc[v] = (cc[v] || 0) + 1; });
+      const ks = Object.keys(cc);
+      if (ks.length >= 5 && ks.filter((k) => cc[k] <= 2).length / ks.length > 0.7)
+        errors.push(`The Course column has ${ks.length} different values with only 1–2 cadets each (${ks.slice(0, 3).join(', ')}…). This looks like Excel drag-fill, so nothing was imported. Fix the Course column, or delete the Course and Gp columns so every row goes into this class.`);
+    }
     if (!errors.length) {
-      const seen = new Set(); const bad = []; const dup = [];
+      const seen = new Set(), bad = [], dup = [], other = {};
       aoa.slice(hi + 1).forEach((r, i) => {
-        const line = hi + i + 2;
         if (r.every((v) => norm(v) === '')) return;
         const gc = parseInt(String(r[cols.gc]).replace(/\D/g, ''), 10);
         const { name, tag } = parseName(r[cols.name]);
-        const pl = norm(r[cols.pl]), course = normCourse(r[cols.course]), gp = normGp(r[cols.gp]);
+        const pl = norm(r[cols.pl]).toUpperCase();
+        const rc = cols.course != null ? normCourse(r[cols.course]) : '';
+        const rg = cols.gp != null ? normGp(r[cols.gp]) : '';
         let appt = cols.appt != null ? norm(r[cols.appt]).toUpperCase() : '';
         if (appt === 'GC') appt = '';
-        if (!gc || !name || !pl || !course || !gp) { bad.push(line); return; }
+        if (!gc || !name || !pl) { bad.push(hi + i + 2); return; }
+        if ((rc && rc !== cls.course) || (rg && rg !== cls.gp)) { const k = `${rc || cls.course} Gp ${rg || cls.gp}`; other[k] = (other[k] || 0) + 1; return; }
         if (seen.has(gc)) { dup.push(gc); return; }
         seen.add(gc);
-        rows.push({ gc, name, tag, pl, appt, course, gp });
+        rows.push({ gc, name, tag, pl, appt, course: cls.course, gp: cls.gp });
       });
-      if (bad.length) warnings.push(`${bad.length} row(s) skipped — missing GC No, Name, Pl, Course or Gp (Excel row ${bad.slice(0, 8).join(', ')}${bad.length > 8 ? '…' : ''}).`);
+      if (bad.length) warnings.push(`${bad.length} row(s) skipped — missing GC No, Name or Pl (Excel row ${bad.slice(0, 8).join(', ')}${bad.length > 8 ? '…' : ''}).`);
       if (dup.length) warnings.push(`Duplicate GC No in file, only first kept: ${dup.slice(0, 8).join(', ')}.`);
-      const cc = {}; rows.forEach((x) => { cc[x.course] = (cc[x.course] || 0) + 1; });
-      const ks = Object.keys(cc);
-      if (ks.length >= 5 && ks.filter((k) => cc[k] <= 2).length / ks.length > 0.7)
-        warnings.push(`${ks.length} different courses with only 1–2 cadets each (e.g. ${ks.slice(0, 3).join(', ')}). This looks like Excel drag-fill. Please check the Course column before importing.`);
-      const gpBad = [...new Set(rows.filter((x) => !['A', 'B'].includes(x.gp)).map((x) => x.gp))];
-      if (gpBad.length) warnings.push(`Unusual Gp value(s): ${gpBad.join(', ')}. Expected A or B.`);
+      const ok = Object.entries(other);
+      if (ok.length) {
+        const n = ok.reduce((a, [, v]) => a + v, 0);
+        warnings.push(`${n} row(s) belong to other classes and were left out: ${ok.slice(0, 4).map(([k, v]) => `${k} (${v})`).join(', ')}${ok.length > 4 ? ` and ${ok.length - 4} more` : ''}. Import them from those classes.`);
+        if (!rows.length) warnings.push(`No rows match ${cls.course} Gp ${cls.gp}. Check the Course/Gp columns, or delete them so every row goes into this class.`);
+      }
     }
   }
   const mname = wb.SheetNames.find((n) => /comd/i.test(n));
@@ -521,41 +715,39 @@ function buildPreview(wb, file) {
       const name = norm(r[iN]);
       if (!role || !norm(r[iK]) || !name || /^\[.*\]$/.test(name)) return;
       const phone = norm(r[iP]);
-      comds.push({ role, key: role === 'Term Comd' ? normCourse(r[iK]) : norm(r[iK]), rank: norm(r[iRk]), name, unit: /^\[.*\]$/.test(norm(r[iU])) ? '' : norm(r[iU]), phone: /X/i.test(phone) ? '' : phone });
+      comds.push({ role, key: role === 'Term Comd' ? normCourse(r[iK]) : norm(r[iK]).toUpperCase(), rank: norm(r[iRk]), name, unit: /^\[.*\]$/.test(norm(r[iU])) ? '' : norm(r[iU]), phone: /X/i.test(phone) ? '' : phone });
     });
   }
-  const byCourse = {};
+  let add = 0, upd = 0, same = 0, moved = 0;
   rows.forEach((x) => {
-    const b = byCourse[x.course] = byCourse[x.course] || { add: 0, upd: 0, same: 0, missing: [] };
     const old = S.cadets[x.gc];
-    if (!old) b.add++;
-    else if (['name', 'tag', 'pl', 'appt', 'course', 'gp'].some((k) => old[k] !== x[k]) || !old.active) b.upd++;
-    else b.same++;
+    if (!old) add++;
+    else if (['name', 'tag', 'pl', 'appt', 'course', 'gp'].some((k) => old[k] !== x[k]) || !old.active) { upd++; if (old.course !== x.course || old.gp !== x.gp) moved++; }
+    else same++;
   });
   const inFile = new Set(rows.map((x) => x.gc));
-  Object.values(S.cadets).forEach((c) => { if (c.active && byCourse[c.course] && !inFile.has(c.gc)) byCourse[c.course].missing.push(c.gc); });
-  if (!rows.length && !errors.length) errors.push('No cadet rows found.');
-  return { file, rows, comds, errors, warnings, byCourse };
+  const missing = rows.length ? Object.values(S.cadets).filter((c) => c.active && c.course === cls.course && c.gp === cls.gp && !inFile.has(c.gc)).map((c) => c.gc) : [];
+  if (!rows.length && !errors.length && !warnings.length) errors.push('No cadet rows found.');
+  return { file, classId: cls.id, rows, comds, errors, warnings, add, upd, same, moved, missing };
 }
 
 async function handleFile(f) {
+  const cls = S.classes.find((c) => c.id === (U.importClassId || (U.view === 'class' ? U.classId : null)));
+  if (!cls) return;
   try {
-    const buf = await f.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array' });
-    U.preview = buildPreview(wb, f.name);
-    U.sheet = { type: 'import' }; pushNav();
+    const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
+    U.preview = buildPreview(wb, f.name, cls);
   } catch (err) {
-    U.preview = { file: f.name, rows: [], comds: [], errors: ['Could not read this file: ' + err.message], warnings: [], byCourse: {} };
-    U.sheet = { type: 'import' }; pushNav();
+    U.preview = { file: f.name, classId: cls.id, rows: [], comds: [], errors: ['Could not read this file: ' + err.message], warnings: [], add: 0, upd: 0, same: 0, moved: 0, missing: [] };
   }
-  render();
+  U.sheet = { type: 'import' }; pushNav(); render();
 }
 
 async function applyImport() {
   const p = U.preview;
   const inactive = $('#markInactive') && $('#markInactive').checked;
   p.rows.forEach((x) => { S.cadets[x.gc] = Object.assign({}, S.cadets[x.gc] || {}, x, { active: true }); });
-  if (inactive) Object.values(p.byCourse).forEach((v) => v.missing.forEach((gc) => { if (S.cadets[gc]) S.cadets[gc].active = false; }));
+  if (inactive) p.missing.forEach((gc) => { if (S.cadets[gc]) S.cadets[gc].active = false; });
   p.comds.forEach((m) => {
     const i = S.comds.findIndex((y) => y.role === m.role && y.key === m.key);
     if (i >= 0) S.comds[i] = m; else S.comds.push(m);
@@ -563,9 +755,7 @@ async function applyImport() {
   S.lastImport = { file: p.file, ts: Date.now() };
   await save();
   U.sheet = null; U.preview = null; silentBack();
-  showToast(`Imported ${p.rows.length} cadets`, p.comds.length ? `${p.comds.length} Comds saved` : 'Cadet list updated', null);
-  render();
-  if (!S.classes.length) setTimeout(() => { U.sheet = { type: 'classes' }; pushNav(); render(); }, 150);
+  showToast(`Imported ${p.rows.length} cadets`, p.comds.length ? `${p.comds.length} Comds saved` : 'Class list updated', null);
 }
 
 /* ---------- actions ---------- */
@@ -589,7 +779,8 @@ function silentBack() { U._skipPop = true; history.back(); }
 function goBack() {
   if (U._skipPop) { U._skipPop = false; render(); return; }
   if (U.sheet) { U.sheet = null; U.preview = null; }
-  else if (U.view === 'profile') { U.view = 'record'; U.profile = null; }
+  else if (U.view === 'profile') { U.view = U.profileFrom || 'record'; U.profile = null; }
+  else if (U.view === 'class') { U.view = U.classFrom || 'record'; }
   else if (U.cadet) { U.cadet = null; U.selObs = null; U.note = ''; U.showNote = false; }
   render();
 }
@@ -630,7 +821,7 @@ const A = {
     U.batchSel.clear();
     render();
   },
-  openProfile(gc) { U.profile = +gc; U.view = 'profile'; U.cadet = null; pushNav(); render(); window.scrollTo(0, 0); },
+  openProfile(gc) { U.profileFrom = U.view === 'profile' ? U.profileFrom : U.view; U.profile = +gc; U.view = 'profile'; U.cadet = null; pushNav(); render(); window.scrollTo(0, 0); },
   editEntry(id) { U.sheet = { type: 'edit', id }; pushNav(); render(); },
   async saveEdit(id) {
     const e = S.entries.find((y) => y.id === id);
@@ -648,6 +839,12 @@ const A = {
     await save(); showToast('Marked done', punLabel(e.pun), null); render();
   },
   openClasses() { U.sheet = { type: 'classes' }; pushNav(); render(); },
+  openClass(id) {
+    if (U.sheet) U.sheet = null; else pushNav(); // from the classes sheet: reuse its history entry
+    if (U.view !== 'class') U.classFrom = U.view;
+    U.view = 'class'; U.classId = id; U.cq = ''; render(); window.scrollTo(0, 0);
+  },
+  async useClass(id) { S.settings.currentClass = id; await save(); showToast('Recording in', className(S.classes.find((c) => c.id === id)), null); render(); },
   async pickClass(id) { S.settings.currentClass = id; U.pl = 'All'; U.batchSel.clear(); await save(); U.sheet = null; silentBack(); render(); },
   async addClass() {
     const f = U.sheet.form;
@@ -657,19 +854,21 @@ const A = {
     if (S.classes.some((c) => c.subject.toLowerCase() === f.subject.toLowerCase() && c.course === f.course && c.gp === f.gp)) { alert('This class already exists.'); return; }
     const c = { id: uid(), subject: f.subject, course: f.course, gp: f.gp };
     S.classes.push(c); S.settings.currentClass = c.id;
-    await save(); U.sheet = null; silentBack(); showToast('Class added', className(c), null); render();
+    await save();
+    // the classes sheet's history entry is reused for the class screen
+    U.sheet = null; U.classFrom = U.view === 'class' ? 'settings' : U.view; U.view = 'class'; U.classId = c.id; U.cq = '';
+    showToast('Class added', className(c), null); render(); window.scrollTo(0, 0);
   },
   async delClass(id) {
     const c = S.classes.find((y) => y.id === id);
     if (!confirm(`Remove class “${className(c)}”? Recorded entries are kept.`)) return;
     S.classes = S.classes.filter((y) => y.id !== id);
     if (S.settings.currentClass === id) S.settings.currentClass = S.classes[0] ? S.classes[0].id : null;
-    await save(); render();
+    await save(); history.back(); showToast('Class removed', 'Cadets and entries are kept', null);
   },
   newCadet() {
-    const sub = U.sheet && U.sheet.type === 'cadetList';
-    U.sheet = { type: 'cadet', gc: null, back: sub ? { type: 'cadetList', q: U.sheet.q } : null };
-    if (!sub) pushNav();
+    U.sheet = { type: 'cadet', gc: null, classId: U.view === 'class' ? U.classId : S.settings.currentClass };
+    pushNav();
     render(); const g = $('#cGc'); if (g) g.focus();
   },
   editCadet(gc) {
@@ -682,7 +881,9 @@ const A = {
     const old = U.sheet.gc ? S.cadets[U.sheet.gc] : null;
     const gc = old ? old.gc : parseInt($('#cGc').value.replace(/\D/g, ''), 10);
     const { name, tag } = parseName($('#cName').value);
-    const pl = norm($('#cPl').value).toUpperCase(), course = normCourse($('#cCourse').value), gp = $('#cGp').value;
+    const cls = S.classes.find((y) => y.id === U.sheet.classId) || curClass();
+    const pl = norm($('#cPl').value).toUpperCase();
+    const course = old ? normCourse($('#cCourse').value) : cls.course, gp = old ? $('#cGp').value : cls.gp;
     let appt = norm($('#cAppt').value).toUpperCase(); if (appt === 'GC') appt = '';
     if (!gc) { alert('Enter the GC No (numbers only).'); return; }
     if (!name || !pl || !course) { alert('Name, Pl and Course are required.'); return; }
@@ -691,11 +892,12 @@ const A = {
     S.cadets[gc] = Object.assign({}, old || {}, { gc, name, tag, pl, appt, course, gp, active });
     await save();
     if (more === 'more') {
-      U.sheet = { type: 'cadet', gc: null, back: U.sheet.back, prefill: { gc: '', name: '', tag: '', pl, appt: '', course, gp } };
+      U.sheet = { type: 'cadet', gc: null, classId: U.sheet.classId, back: U.sheet.back, prefill: { gc: '', name: '', tag: '', pl, appt: '', course, gp } };
       showToast('Cadet saved', `GC ${gc} ${name}`, null); render(); $('#cGc').focus(); return;
     }
     showToast(old ? 'Cadet updated' : 'Cadet added', `GC ${gc} ${name}`, null);
     if (U.sheet.back) { U.sheet = U.sheet.back; render(); } else { U.sheet = null; silentBack(); }
+    if (U.view === 'class') render();
   },
   openCadetList() { U.sheet = { type: 'cadetList', q: '' }; pushNav(); render(); },
   editComd(i) { U.sheet = { type: 'comd', idx: i }; pushNav(); render(); },
@@ -712,7 +914,42 @@ const A = {
     if (!confirm('Delete this Comd?')) return;
     S.comds.splice(+U.sheet.idx, 1); await save(); U.sheet = null; silentBack();
   },
-  pickFile() { $('#fileInput').value = ''; $('#fileInput').click(); },
+  repPeriod(k) { U.rep.period = k; render(); },
+  exportXlsx(how) {
+    const f = buildXlsx();
+    if (how === 'share') shareFile(f); else { downloadFile(f); showToast('Excel saved', f.name + ' (Downloads)', null); render(); }
+  },
+  async backup(how) {
+    const f = backupFile();
+    const ok = how === 'share' ? await shareFile(f) : (downloadFile(f), true);
+    if (ok) { S.settings.lastBackup = Date.now(); await save(); showToast('Backup saved', how === 'share' ? f.name : f.name + ' (Downloads)', null); render(); }
+  },
+  pickRestore() { $('#restoreInput').value = ''; $('#restoreInput').click(); },
+  pinSetup() { U.lock = { mode: 'set1', pin: '', first: '', msg: '' }; render(); },
+  async pinOff() { if (!confirm('Turn off PIN lock?')) return; delete S.settings.pinHash; await save(); showToast('PIN lock off', '', null); render(); },
+  pinCancel() { U.lock = null; render(); },
+  async pinKey(k) {
+    const L = U.lock;
+    if (k === '⌫') { L.pin = L.pin.slice(0, -1); L.msg = ''; render(); return; }
+    if (L.pin.length >= 4) return;
+    L.pin += k; render();
+    if (L.pin.length < 4) return;
+    if (L.mode === 'unlock') {
+      if (await hashPin(L.pin) === S.settings.pinHash) { U.lock = null; render(); }
+      else { L.pin = ''; L.msg = 'Wrong PIN'; render(); }
+    } else if (L.mode === 'set1') { L.first = L.pin; L.pin = ''; L.mode = 'set2'; L.msg = ''; render(); }
+    else if (L.pin === L.first) { S.settings.pinHash = await hashPin(L.pin); await save(); U.lock = null; showToast('PIN set', 'Asked when the app opens', null); render(); }
+    else { L.mode = 'set1'; L.pin = ''; L.first = ''; L.msg = 'PINs did not match — try again'; render(); }
+  },
+  async forgotPin() {
+    if (prompt('Without the PIN, the only option is to ERASE ALL DATA on this phone (you can restore a backup afterwards).\n\nType ERASE to continue.') !== 'ERASE') return;
+    S = freshState(); await save(); U.lock = null; U.view = 'record'; render();
+  },
+  async eraseAll() {
+    if (prompt('This deletes ALL cadets, classes, records and Comds on this phone.\nMake a backup first if you may need them.\n\nType ERASE to continue.') !== 'ERASE') return;
+    S = freshState(); await save(); U.view = 'record'; U.cadet = null; showToast('All data erased', '', null); render();
+  },
+  pickFile(id) { U.importClassId = id || U.classId; $('#fileInput').value = ''; $('#fileInput').click(); },
   applyImport() { applyImport(); },
   closeSheet() { if (U.sheet && U.sheet.back) { U.sheet = U.sheet.back; render(); } else history.back(); },
   scrim(_, el, ev) { if (ev.target === el) history.back(); },
@@ -733,6 +970,7 @@ document.addEventListener('input', (ev) => {
   else if (t.id === 'fSubject' && U.sheet && U.sheet.form) U.sheet.form.subject = t.value;
   else if (t.id === 'fCourse' && U.sheet && U.sheet.form) U.sheet.form.course = t.value;
   else if (t.id === 'cq') { U.sheet.q = t.value; $('#clist').innerHTML = cadetListRows(); }
+  else if (t.id === 'ccq') { U.cq = t.value; $('#clsList').innerHTML = classListRows(S.classes.find((c) => c.id === U.classId)); }
 });
 document.addEventListener('change', async (ev) => {
   const t = ev.target;
@@ -740,19 +978,40 @@ document.addEventListener('change', async (ev) => {
   else if (t.id === 'fCourse' || t.id === 'fGp') {
     const f = U.sheet.form;
     f.subject = $('#fSubject').value; f.course = normCourse($('#fCourse').value); f.gp = $('#fGp').value;
-    const focusId = document.activeElement && document.activeElement.id;
-    render();
-    if (focusId) { const el = document.getElementById(focusId); if (el) el.focus(); }
+    $('#fHint').innerHTML = classHint(f); // update hint only: a full redraw would swallow the tap on Add class
   } else if (t.id === 'termStart' && t.value) { S.settings.termStart = t.value; await save(); showToast('Term start saved', t.value, null); render(); }
   else if (t.id === 'fileInput' && t.files[0]) handleFile(t.files[0]);
+  else if (t.id === 'repCls') { U.rep.cls = t.value; render(); }
+  else if (t.id === 'restoreInput' && t.files[0]) restoreFrom(t.files[0]);
 });
 window.addEventListener('popstate', goBack);
+
+async function restoreFrom(f) {
+  let b;
+  try { b = JSON.parse(await f.text()); } catch (e) { alert('This is not a valid backup file.'); return; }
+  if (!b || b.app !== 'cadet-obs' || !b.state || !b.state.cadets) { alert('This is not a Cadet Obs backup file.'); return; }
+  const st = b.state;
+  const msg = `Restore backup from ${new Date(b.exported).toLocaleString()}?\n\n${Object.keys(st.cadets).length} cadets · ${st.classes.length} classes · ${st.entries.length} records\n\nThis REPLACES all data currently on this phone.`;
+  if (!confirm(msg)) return;
+  S = Object.assign(freshState(), st);
+  S.settings = Object.assign(freshState().settings, st.settings || {});
+  await save(); U.view = 'record'; U.cadet = null; U.rep = null;
+  showToast('Backup restored', `${st.entries.length} records`, null); render();
+}
+
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) hiddenAt = Date.now();
+  else if (S && S.settings.pinHash && !U.lock && hiddenAt && Date.now() - hiddenAt > 60000) { U.lock = { mode: 'unlock', pin: '', msg: '' }; render(); }
+});
 
 /* ---------- boot ---------- */
 (async function boot() {
   try {
     await DB.open();
     S = (await DB.get('state')) || freshState();
+    S.settings = Object.assign(freshState().settings, S.settings);
+    if (S.settings.pinHash) U.lock = { mode: 'unlock', pin: '', msg: '' };
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
   } catch (err) {
     $('#app').innerHTML = `<div class="boot">Storage is not available: ${esc(err.message)}</div>`;

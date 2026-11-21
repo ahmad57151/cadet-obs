@@ -7,12 +7,14 @@ Offline phone app (PWA) for an instructor to record cadet observations and punis
 - Install: open the GitHub Pages link in Chrome on Android → ⋮ → *Add to Home screen*.
 
 ## Import format (Excel or CSV)
-Sheet `Cadets`: `GC No | Name | Pl | Appt | Course | Gp` (Appt optional; Gp = A or B).
+Create a class first (Subject + Course + Gp), open it and tap **Import list**.
+Sheet `Cadets`: `GC No | Name | Pl` required; `Appt`, `Course`, `Gp` optional.
+If Course/Gp are present, only rows for that class are taken. Drag-filled Course columns are refused.
 Optional sheet `Comds`: `Role | Pl / Course | Rank | Name | Unit | Phone`.
-Import one course or several at a time; cadets are matched by GC No.
+Cadets are matched by GC No; re-importing updates, never deletes records.
 
 ## Stages
 - [x] Stage 1 — import with preview, classes, record (cadet first / batch), undo, history & edit, pending list
 - [x] Stage 2 (part) — add/edit single cadet & Comd in app, create class without import
-- [ ] Stage 3 — reports, Excel export, backup & restore, PIN lock
+- [x] Stage 3 — reports, Excel export, backup & restore, PIN lock, erase
 - [ ] Later — sitrep generator
