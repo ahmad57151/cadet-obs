@@ -2,7 +2,7 @@
 /* Cadet Observations — Stage 1
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.4.5';
+const APP_VERSION = '0.4.6';
 const OBS_DEFAULT = [
   'Precis not in possession', 'Writing material not in possession', 'Arriving late', 'Missing from class',
   'Asg not submitted', 'Public speaking not prepared', 'Sleeping in class', 'Not behaving'
@@ -179,7 +179,7 @@ function classHeader(kicker) {
   const c = curClass();
   return `<div class="row"><h1>${kicker}</h1><span class="kicker">${new Date().toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}</span></div>
     <button class="classbtn" data-act="openClasses"><span class="l"><small>CURRENT CLASS</small><b>${c ? esc(className(c)) : 'Tap to add a class'}</b></span>
-    <span style="font-size:13px;font-weight:600;color:#D9E3DA;display:flex;gap:4px;align-items:center">Change ${ICON.down}</span></button>`;
+    <span style="color:#D9E3DA;display:flex;align-items:center;flex:none" aria-label="Change class">${ICON.down.replace('width="14" height="14"', 'width="20" height="20"')}</span></button>`;
 }
 
 function viewRecord() {
@@ -192,10 +192,10 @@ function viewRecord() {
     const cadets = classCadets(c);
     const pls = ['All', ...new Set(cadets.map((x) => x.pl))];
     if (!pls.includes(U.pl)) U.pl = 'All';
- body = termBanner() + backupBanner() + `<label class="search">${ICON.search}<input id="q" type="text" inputmode="search" placeholder="Last digits of GC No, or name" aria-label="Search cadet" value="${esc(U.q)}"></label>
+ body = termBanner() + backupBanner() + `<label class="search">${ICON.search}<input id="q" type="text" inputmode="search" placeholder="GC No or name" aria-label="Search cadet" value="${esc(U.q)}"></label>
       ${U.mode === 'batch' ? batchObsHtml() : ''}
       <div class="chips">${pls.map((p) => `<button class="chip ${U.pl === p ? 'on' : ''}" data-act="pl" data-arg="${esc(p)}">${esc(p)}</button>`).join('')}
-      <span style="flex:1;text-align:right" class="small">${cadets.length} cadets</span></div>
+      <span class="small count-note">${cadets.length} cadets</span></div>
       <div id="list" class="list">${listHtml()}</div>
 `;
     if (U.mode === 'batch') body += batchFootHtml();
@@ -303,7 +303,7 @@ function viewProfile() {
       <div class="card" style="padding:6px;display:flex;flex-direction:column;gap:2px">${byType.length ? byType.map(([o, n]) => filterBar('histObs', o, o, n, max, hf)).join('')
         : '<span class="small" style="padding:8px">Nothing this term. Tap “All time” to see earlier terms.</span>'}</div>` : ''}
     <span class="label">Comds</span><div class="card">${comdRow('PL COMD · ' + esc(x.pl), pl)}${comdRow('TERM COMD · ' + esc(x.course), tc)}</div>
-    <div class="between"><span class="label">History${hf ? ' · ' + esc(hf) : ''}</span>${hf ? '<button class="chip sm" data-act="histObs" data-arg="">Show all ✕</button>' : '<span class="small">Tap an entry to edit</span>'}</div>
+    <div class="between"><span class="label">History${hf ? ' · ' + esc(hf) : ''}</span>${hf ? '<button class="chip sm" data-act="histObs" data-arg="">Clear ✕</button>' : '<span class="small">Tap an entry to edit</span>'}</div>
     <div class="list">${all.length ? (shown.length ? shown.map((e) => histHtml(e, e.ts < termTs())).join('') : '<div class="empty"><span>No entries for this filter.</span></div>') : '<div class="empty"><span>No observations recorded.</span></div>'}</div>
     </main>`;
 }
@@ -371,7 +371,7 @@ function viewClass() {
     <main class="body">
     <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
       <b style="font-size:15px">${act.length} cadet${act.length === 1 ? '' : 's'}${Object.keys(pls).length ? ' · ' + Object.entries(pls).sort().map(([k, v]) => `${esc(k)} (${v})`).join(', ') : ''}</b>
-      <div class="grid2"><button class="btn pri sm" data-act="pickFile" data-arg="${c.id}">Import list</button><button class="btn sm" data-act="newCadet">+ Add cadet</button></div>
+      <div class="grid2"><button class="btn pri sm" data-act="pickFile" data-arg="${c.id}">Import list</button><button class="btn sm" data-act="newCadet">Add cadet</button></div>
       <span class="small">Excel/CSV with columns GC No, Name, Pl (Appt optional). If the file also has Course and Gp, only rows for ${esc(c.course)} Gp ${esc(c.gp)} are taken. Importing again updates the list — nothing recorded is lost.</span>
       ${shared.length ? `<span class="small">Same cadets as: ${shared.map((y) => esc(className(y))).join(', ')}</span>` : ''}
     </div>
@@ -396,7 +396,8 @@ function viewPending() {
     const cls = S.classes.find((c) => c.id === e.classId);
     const m = e.pun === 'plcomd' ? comdFor('Pl Comd', x.pl) : null;
     return `<div class="card" style="padding:14px;display:flex;flex-direction:column;gap:8px">
-      <div class="between"><b style="font-size:15px">${esc(x.name)} <span style="font-weight:500;color:#5B5B55">· GC ${x.gc}</span></b><span class="small">${esc(fmtWhen(e.ts))}</span></div>
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline"><b style="font-size:15px;min-width:0">${esc(x.name)}</b><span class="small" style="white-space:nowrap">${esc(fmtWhen(e.ts))}</span></div>
+      <span class="sub">GC ${x.gc} · ${esc(x.pl)}</span>
       <span class="sub" style="color:#3F3F3A">${esc(e.obs)}${cls ? ' · ' + esc(className(cls)) : ''}</span>
       ${e.note ? `<span class="small">“${esc(e.note)}”</span>` : ''}
       ${e.pun === 'plcomd' ? `<div style="background:#F5F4EF;border-radius:10px;padding:10px 12px" class="small"><b style="color:#1C1C1A">Pl Comd ${esc(x.pl)}:</b> ${m ? esc([m.rank, m.name, m.unit, m.phone].filter(Boolean).join(' · ')) : 'not saved yet (import Comds sheet)'}</div>` : ''}
@@ -466,14 +467,14 @@ function viewReports() {
     <span class="label">Punishments · tap to filter</span>
     <div class="card" style="padding:6px;display:flex;flex-direction:column;gap:2px">${PUN.map((pn) => [pn.id, pn.label]).concat([['none', 'Not decided yet']])
       .filter(([k]) => byPun[k] || r.pun === k).map(([k, l]) => filterBar('repPun', k, l, byPun[k] || 0, pmax, r.pun)).join('') || '<span class="small" style="padding:8px">None for this observation.</span>'}</div>
-    <div class="between"><span class="label">${filt.length ? 'Cadets · ' + esc(filt.join(' + ')) : 'Most observations'}</span>${filt.length ? '<button class="chip sm" data-act="repClear">Clear filters ✕</button>' : ''}</div>
+    <div class="between"><span class="label">${filt.length ? 'Cadets · ' + esc(filt.join(' + ')) : 'Most observations'}</span>${filt.length ? '<button class="chip sm" data-act="repClear">Clear ✕</button>' : ''}</div>
     <div class="list">${top.map(([gc, n], i) => { const x = S.cadets[gc] || { name: '?', pl: '' };
       return `<button class="crow" style="min-height:56px" data-act="openProfile" data-arg="${gc}"><span style="width:20px;font-weight:700;color:#5B5B55">${i + 1}</span>
       <span class="grow"><span class="nm">${esc(x.name)}</span><span class="sub">GC ${gc} · ${esc(x.pl)}</span></span><span class="pill ${n >= 4 ? 'p-red' : n >= 2 ? 'p-amb' : 'p-grey'}">${n}${filt.length ? '×' : ' obs'}</span></button>`; }).join('') || '<div class="empty"><span>No cadets for this filter.</span></div>'}</div>
     ${ranked.length > 10 ? `<button class="btn sm" data-act="repAllTop">${r.allTop ? 'Show top 10' : `Show all ${ranked.length} cadets`}</button>` : ''}`
     : '<div class="empty"><span>No observations in this period.</span></div>'}
     ${filt.length ? '<span class="small">Excel export includes only the filtered entries.</span>' : ''}
-    <div class="grid2"><button class="btn pri" data-act="exportXlsx" data-arg="save" ${es.length ? '' : 'disabled'}>Export to Excel</button>
+    <div class="grid2"><button class="btn pri" data-act="exportXlsx" data-arg="save" ${es.length ? '' : 'disabled'}>Export Excel</button>
     <button class="btn" data-act="exportXlsx" data-arg="share" ${es.length && canShareFiles() ? '' : 'disabled'}>Share Excel</button></div>
     </main>`;
 }
@@ -554,12 +555,12 @@ function viewSettings() {
         <span class="grow"><span class="nm">${esc(className(c))}${c.id === S.settings.currentClass ? '<span class="pill p-ok">Recording</span>' : ''}</span>
         <span class="sub">${n} cadet${n === 1 ? '' : 's'} · tap to import / add / edit</span></span><span aria-hidden="true">›</span></button>`; }).join('')
       : '<div style="padding:14px" class="small">No classes yet. Tap “+ Add class”.</div>'}</div>
-    <div class="grid2"><button class="btn sm" data-act="openCadetList">All cadets (${act})</button>
-    <button class="btn sm" data-act="openArchived" ${S.classes.some((c) => c.archived) ? '' : 'disabled'}>Old classes (${S.classes.filter((c) => c.archived).length})</button></div>
+    <div class="grid2"><button class="btn sm" data-act="openCadetList">All cadets · ${act}</button>
+    <button class="btn sm" data-act="openArchived" ${S.classes.some((c) => c.archived) ? '' : 'disabled'}>Old classes · ${S.classes.filter((c) => c.archived).length}</button></div>
 
     <span class="label">Term</span>
     <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
-      <div class="between"><b style="font-size:18px">${esc(curTerm().name)}</b><span class="small">ends around ${esc(fmtD(termEnd(curTerm())))}</span></div>
+      <div style="display:flex;flex-direction:column;gap:2px"><b style="font-size:18px;white-space:nowrap">${esc(curTerm().name)}</b><span class="small">Ends around ${esc(fmtD(termEnd(curTerm())))}</span></div>
       <label class="field"><span>Started on (adjust if the term began on another date)</span><input type="date" id="termStart" value="${esc(S.settings.termStart)}"></label>
       <span class="small">“1st / 2nd time” counts start from this date. The name is set automatically: Summer (May–Oct) or Winter (Nov–Apr).${S.terms.length > 1 ? ` ${S.terms.length - 1} previous term${S.terms.length > 2 ? 's' : ''} kept for reports.` : ''}</span>
       <button class="btn sm" data-act="openNewTerm">Start new term…</button>
@@ -575,8 +576,8 @@ function viewSettings() {
     <span class="label">Backup &amp; restore</span>
     <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
       <span style="font-size:14px;font-weight:600;color:${d === null || d >= 7 ? '#A1271B' : '#23402F'}">${lb ? `Last backup: ${esc(fmtWhen(lb))}` : 'No backup yet'}</span>
-      <div class="grid2"><button class="btn sm pri" data-act="backup" data-arg="save">Save backup file</button>
-      <button class="btn sm" data-act="backup" data-arg="share" ${canShareFiles() ? '' : 'disabled'}>Share backup</button></div>
+      <button class="btn sm pri" data-act="backup" data-arg="save">Save backup file</button>
+      <button class="btn sm" data-act="backup" data-arg="share" ${canShareFiles() ? '' : 'disabled'}>Share backup (WhatsApp, Drive…)</button>
       <button class="btn sm" data-act="pickRestore">Restore from backup…</button>
       <span class="small">The backup is one .json file with everything (cadets, classes, records, Comds). Keep it in Google Drive or send it to yourself. Restoring replaces all data on this phone.</span>
     </div>
@@ -721,8 +722,8 @@ function newTermSheet() {
     <span class="small">Finishing: <b style="color:#1C1C1A">${esc(t.name)}</b> (from ${esc(fmtD(t.start))}) · ${lc.length} class${lc.length === 1 ? '' : 'es'} · ${S.entries.filter((e) => e.ts >= termTs()).length} records</span>
     <div class="${d === 0 ? 'hint ok' : 'warn'}" style="display:flex;align-items:center;gap:10px"><span style="flex:1">${d === 0 ? 'Backup saved today.' : 'Step 1: save a backup of the finished term first.'}</span>
       <button class="btn sm" style="flex:none" data-act="backup" data-arg="save">Back up</button></div>
-    <div class="grid2"><label class="field"><span>New term starts on</span><input type="date" id="ntStart" value="${nextTermStart(t)}"></label>
-    <div class="field"><span>Name (automatic)</span><b id="ntNameShow" style="font-size:18px;padding-top:12px">${esc(seasonOf(nextTermStart(t)).name)}</b></div></div>
+    <label class="field"><span>New term starts on</span><input type="date" id="ntStart" value="${nextTermStart(t)}"></label>
+    <span class="small">Name (automatic): <b id="ntNameShow" style="font-size:16px;color:#1C1C1A">${esc(seasonOf(nextTermStart(t)).name)}</b></span>
     <label class="check"><input type="checkbox" id="ntArchive" checked><span>Move the current ${lc.length} class${lc.length === 1 ? '' : 'es'} to “Old classes”. You then add this term's classes fresh. Old records stay in history and reports.</span></label>
     ${pend ? `<label class="check"><input type="checkbox" id="ntClose"><span>Mark the ${pend} pending action${pend > 1 ? 's' : ''} as done (leave unticked to keep them on the Pending tab).</span></label>` : ''}
     <span class="small">Cadets are not deleted. Counts (“1st / 2nd time”) restart from the new date; earlier observations show as “previous term” in each cadet's history.</span>

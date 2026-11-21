@@ -92,3 +92,18 @@ a.btn{color:var(--ink)}
 .fbar .n{width:130px;font-weight:500}.fbar .track{flex:1;height:10px;background:#EFEDE5;border-radius:5px;overflow:hidden}.fbar .fill{height:10px;background:var(--olive);border-radius:5px}.fbar .c{width:24px;text-align:right;font-weight:700}
 .fbar.on{background:#EEF4EF;border-color:var(--olive)}.fbar.on .n{font-weight:700}
 .fbar.dim{opacity:.45}
+/* ---- fitting fixes (narrow phones / large text) ---- */
+.chip,.pill,.tag,.btn,.hbtn,.seg button,.nav button{white-space:nowrap}
+.btn,.hbtn{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.between{gap:10px;flex-wrap:nowrap}
+.between>.label{flex:1;min-width:0;line-height:1.35}
+.between>button,.between>.chips{flex:none}
+.seg button{padding:0 4px;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.crow .grow,.hist .between>span:first-child{min-width:0}
+.count-note{white-space:nowrap;flex:1;text-align:right}
+/* buttons: wrap neatly (centred, 2 lines) instead of clipping; chips/pills/tags stay on one line */
+.btn,.hbtn,.seg button{white-space:normal;text-overflow:clip;line-height:1.2;height:auto}
+.btn{min-height:52px;padding-top:6px;padding-bottom:6px}
+.btn.sm{min-height:44px}
+.hbtn{min-height:40px;padding-top:4px;padding-bottom:4px}
+.seg button{min-height:40px;padding:4px 6px}
