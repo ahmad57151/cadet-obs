@@ -2,7 +2,7 @@
 /* Cadet Observations — Stage 1
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.4.0';
+const APP_VERSION = '0.4.1';
 const OBS_DEFAULT = [
   'Precis not in possession', 'Writing material not in possession', 'Arriving late', 'Missing from class',
   'Asg not submitted', 'Public speaking not prepared', 'Sleeping in class', 'Not behaving'
@@ -43,10 +43,29 @@ const DB = {
 
 const today = () => new Date().toISOString().slice(0, 10);
 let S = null; // persisted state
-const freshState = () => ({
-  v: 1, cadets: {}, classes: [], entries: [], comds: [], terms: [{ id: uid(), name: 'Term 1', start: today() }],
-  settings: { currentClass: null, termStart: today(), obs: OBS_DEFAULT.slice() }
-});
+/* Terms: Summer (about 15 May – 15 Oct) and Winter (about 15 Nov – 15 Apr).
+   The name comes from the start date: May–Oct = Summer YYYY; Nov–Dec = Winter YYYY;
+   Jan–Apr = Winter of the previous year (the winter that began in November). */
+function seasonOf(d) {
+  const [y, m] = d.split('-').map(Number);
+  if (m >= 5 && m <= 10) return { name: `Summer ${y}`, summer: true, year: y };
+  return m >= 11 ? { name: `Winter ${y}`, summer: false, year: y } : { name: `Winter ${y - 1}`, summer: false, year: y - 1 };
+}
+const termEnd = (t) => { const s = seasonOf(t.start); return s.summer ? `${s.year}-10-15` : `${s.year + 1}-04-15`; };
+const nextTermStart = (t) => { const s = seasonOf(t.start); return s.summer ? `${s.year}-11-15` : `${s.year + 1}-05-15`; };
+function firstTermStart() { // the nominal start of the season we are in, but never in the future
+  const s = seasonOf(today()), d = s.summer ? `${s.year}-05-15` : `${s.year}-11-15`;
+  return d > today() ? today() : d;
+}
+const fmtD = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+const freshState = () => {
+  const start = firstTermStart();
+  return {
+    v: 1, cadets: {}, classes: [], entries: [], comds: [], terms: [{ id: uid(), name: seasonOf(start).name, start }],
+    settings: { currentClass: null, termStart: start, obs: OBS_DEFAULT.slice() }
+  };
+};
 async function save() { await DB.set('state', S); }
 
 /* ---------- ui state ---------- */
@@ -173,7 +192,7 @@ function viewRecord() {
     const cadets = classCadets(c);
     const pls = ['All', ...new Set(cadets.map((x) => x.pl))];
     if (!pls.includes(U.pl)) U.pl = 'All';
- body = backupBanner() + `<label class="search">${ICON.search}<input id="q" type="text" inputmode="search" placeholder="Last digits of GC No, or name" aria-label="Search cadet" value="${esc(U.q)}"></label>
+ body = termBanner() + backupBanner() + `<label class="search">${ICON.search}<input id="q" type="text" inputmode="search" placeholder="Last digits of GC No, or name" aria-label="Search cadet" value="${esc(U.q)}"></label>
       ${U.mode === 'batch' ? batchObsHtml() : ''}
       <div class="chips">${pls.map((p) => `<button class="chip ${U.pl === p ? 'on' : ''}" data-act="pl" data-arg="${esc(p)}">${esc(p)}</button>`).join('')}
       <span style="flex:1;text-align:right" class="small">${cadets.length} cadets</span></div>
@@ -400,7 +419,7 @@ function viewReports() {
       ${arch.length ? `<optgroup label="Previous terms">${arch.map((c) => `<option value="${c.id}" ${r.cls === c.id ? 'selected' : ''}>${esc(className(c))} (${esc((termOf(c) || {}).name || 'old')})</option>`).join('')}</optgroup>` : ''}</select>
     <div class="seg">${PERIODS.map(([k, l]) => `<button class="${r.period === k ? 'on' : ''}" data-act="repPeriod" data-arg="${k}">${l}</button>`).join('')}</div>
     ${r.period === 'term' && S.terms.length > 1 ? `<select id="repTerm" aria-label="Term" style="background:#183026;color:#fff;border:0">${S.terms.slice().reverse().map((t) =>
-      `<option value="${t.id}" ${r.term === t.id ? 'selected' : ''}>${esc(t.name)} (from ${esc(t.start)})${t === curTerm() ? ' · current' : ''}</option>`).join('')}</select>` : ''}</header>
+      `<option value="${t.id}" ${r.term === t.id ? 'selected' : ''}>${esc(t.name)} (from ${esc(fmtD(t.start))})${t === curTerm() ? ' · current' : ''}</option>`).join('')}</select>` : ''}</header>
     <main class="body">
     <div class="grid3 tiles"><div class="t"><b>${es.length}</b><span>Observations</span></div><div class="t"><b>${Object.keys(byCadet).length}</b><span>Cadets</span></div>
     <div class="t"><b style="color:${pend ? '#7A4300' : '#1C1C1A'}">${pend}</b><span>Pending</span></div></div>
@@ -470,6 +489,12 @@ function backupFile() {
   return new File([data], `CadetObs_backup_${today()}.json`, { type: 'application/json' });
 }
 const daysSince = (ts) => ts ? Math.floor((Date.now() - ts) / 86400000) : null;
+function termBanner() {
+  const t = curTerm();
+  if (today() <= termEnd(t)) return '';
+  return `<div class="warn" style="display:flex;align-items:center;gap:10px"><span style="flex:1">${esc(t.name)} was due to end on ${esc(fmtD(termEnd(t)))}. Start ${esc(seasonOf(nextTermStart(t)).name)}?</span>
+    <button class="btn sm" style="flex:none" data-act="openNewTerm">New term</button></div>`;
+}
 function backupBanner() {
   if (!S.entries.length) return '';
   const d = daysSince(S.settings.lastBackup);
@@ -494,9 +519,9 @@ function viewSettings() {
 
     <span class="label">Term</span>
     <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
-      <div class="grid2"><label class="field"><span>Term name</span><input type="text" id="termName" value="${esc(curTerm().name)}"></label>
-      <label class="field"><span>Started on</span><input type="date" id="termStart" value="${esc(S.settings.termStart)}"></label></div>
-      <span class="small">“1st / 2nd time” counts start from this date.${S.terms.length > 1 ? ` ${S.terms.length - 1} previous term${S.terms.length > 2 ? 's' : ''} kept for reports.` : ''}</span>
+      <div class="between"><b style="font-size:18px">${esc(curTerm().name)}</b><span class="small">ends around ${esc(fmtD(termEnd(curTerm())))}</span></div>
+      <label class="field"><span>Started on (adjust if the term began on another date)</span><input type="date" id="termStart" value="${esc(S.settings.termStart)}"></label>
+      <span class="small">“1st / 2nd time” counts start from this date. The name is set automatically: Summer (May–Oct) or Winter (Nov–Apr).${S.terms.length > 1 ? ` ${S.terms.length - 1} previous term${S.terms.length > 2 ? 's' : ''} kept for reports.` : ''}</span>
       <button class="btn sm" data-act="openNewTerm">Start new term…</button>
     </div>
 
@@ -653,11 +678,11 @@ function newTermSheet() {
   const pend = S.entries.filter((e) => e.status === 'pending').length;
   const d = daysSince(S.settings.lastBackup);
   return `<h2>Start new term</h2>
-    <span class="small">Finishing: <b style="color:#1C1C1A">${esc(t.name)}</b> (from ${esc(t.start)}) · ${lc.length} class${lc.length === 1 ? '' : 'es'} · ${S.entries.filter((e) => e.ts >= termTs()).length} records</span>
+    <span class="small">Finishing: <b style="color:#1C1C1A">${esc(t.name)}</b> (from ${esc(fmtD(t.start))}) · ${lc.length} class${lc.length === 1 ? '' : 'es'} · ${S.entries.filter((e) => e.ts >= termTs()).length} records</span>
     <div class="${d === 0 ? 'hint ok' : 'warn'}" style="display:flex;align-items:center;gap:10px"><span style="flex:1">${d === 0 ? 'Backup saved today.' : 'Step 1: save a backup of the finished term first.'}</span>
       <button class="btn sm" style="flex:none" data-act="backup" data-arg="save">Back up</button></div>
-    <div class="grid2"><label class="field"><span>New term name</span><input type="text" id="ntName" value="Term ${S.terms.length + 1}"></label>
-    <label class="field"><span>Starts on</span><input type="date" id="ntStart" value="${today()}"></label></div>
+    <div class="grid2"><label class="field"><span>New term starts on</span><input type="date" id="ntStart" value="${nextTermStart(t)}"></label>
+    <div class="field"><span>Name (automatic)</span><b id="ntNameShow" style="font-size:18px;padding-top:12px">${esc(seasonOf(nextTermStart(t)).name)}</b></div></div>
     <label class="check"><input type="checkbox" id="ntArchive" checked><span>Move the current ${lc.length} class${lc.length === 1 ? '' : 'es'} to “Old classes”. You then add this term's classes fresh. Old records stay in history and reports.</span></label>
     ${pend ? `<label class="check"><input type="checkbox" id="ntClose"><span>Mark the ${pend} pending action${pend > 1 ? 's' : ''} as done (leave unticked to keep them on the Pending tab).</span></label>` : ''}
     <span class="small">Cadets are not deleted. Counts (“1st / 2nd time”) restart from the new date; earlier observations show as “previous term” in each cadet's history.</span>
@@ -1001,11 +1026,13 @@ const A = {
     await save(); showToast('Class back in use', className(c), null); render();
   },
   async startNewTerm() {
-    const name = norm($('#ntName').value) || `Term ${S.terms.length + 1}`, start = $('#ntStart').value;
+    const start = $('#ntStart').value;
     if (!start) { uiAlert('Choose the start date of the new term.'); return; }
-    if (start <= curTerm().start) { uiAlert(`The new term must start after ${curTerm().start}.`); return; }
+    const name = seasonOf(start).name;
+    if (start <= curTerm().start) { uiAlert(`The new term must start after ${fmtD(curTerm().start)}.`); return; }
+    if (S.terms.some((x) => x.name === name)) { uiAlert(`${name} already exists. Choose a start date in the next term (e.g. ${fmtD(nextTermStart(curTerm()))}).`); return; }
     const archive = $('#ntArchive').checked, close = $('#ntClose') && $('#ntClose').checked;
-    if (!(await uiConfirm(`${name} starts on ${start}.${archive ? '\nCurrent classes move to “Old classes”.' : ''}${close ? '\nPending actions are marked done.' : ''}`, { title: 'Start new term?', ok: 'Start' }))) return;
+    if (!(await uiConfirm(`${name} starts on ${fmtD(start)}.${archive ? '\nCurrent classes move to “Old classes”.' : ''}${close ? '\nPending actions are marked done.' : ''}`, { title: 'Start new term?', ok: 'Start' }))) return;
     S.terms.push({ id: uid(), name, start });
     S.settings.termStart = start;
     if (archive) { liveClasses().forEach((c) => { c.archived = true; }); S.settings.currentClass = null; }
@@ -1068,6 +1095,7 @@ document.addEventListener('input', (ev) => {
   else if (t.id === 'note') U.note = t.value;
   else if (t.id === 'fSubject' && U.sheet && U.sheet.form) U.sheet.form.subject = t.value;
   else if (t.id === 'fCourse' && U.sheet && U.sheet.form) U.sheet.form.course = t.value;
+  else if (t.id === 'ntStart' && t.value) $('#ntNameShow').textContent = seasonOf(t.value).name;
   else if (t.id === 'cq') { U.sheet.q = t.value; $('#clist').innerHTML = cadetListRows(); }
   else if (t.id === 'ccq') { U.cq = t.value; $('#clsList').innerHTML = classListRows(S.classes.find((c) => c.id === U.classId)); }
 });
@@ -1081,8 +1109,12 @@ document.addEventListener('change', async (ev) => {
   } else if (t.id === 'termStart' && t.value) {
     const prev = S.terms[S.terms.length - 2];
     if (prev && t.value <= prev.start) { uiAlert(`Must be after the previous term's start (${prev.start}).`); render(); return; }
-    S.settings.termStart = t.value; curTerm().start = t.value; await save(); showToast('Term start saved', t.value, null); render();
-  } else if (t.id === 'termName' && norm(t.value)) { curTerm().name = norm(t.value); await save(); showToast('Term name saved', curTerm().name, null); }
+    const nm = seasonOf(t.value).name;
+    if (S.terms.some((x) => x !== curTerm() && x.name === nm)) { uiAlert(`${nm} already exists as an earlier term.`); render(); return; }
+    S.settings.termStart = t.value; curTerm().start = t.value; curTerm().name = nm;
+    await save(); showToast('Term start saved', `${nm} · from ${fmtD(t.value)}`, null); render();
+  }
+  else if (t.id === 'ntStart' && t.value) { $('#ntNameShow').textContent = seasonOf(t.value).name; }
   else if (t.id === 'repTerm') { U.rep.term = t.value; render(); }
   else if (t.id === 'fileInput' && t.files[0]) handleFile(t.files[0]);
   else if (t.id === 'repCls') { U.rep.cls = t.value; render(); }
@@ -1092,7 +1124,8 @@ window.addEventListener('popstate', goBack);
 
 function migrate() { // fill fields added in later versions
   S.settings = Object.assign(freshState().settings, S.settings || {});
-  if (!S.terms || !S.terms.length) S.terms = [{ id: uid(), name: 'Term 1', start: S.settings.termStart }];
+  if (!S.terms || !S.terms.length) S.terms = [{ id: uid(), start: S.settings.termStart }];
+  S.terms.forEach((t) => { t.name = seasonOf(t.start).name; }); // names always follow the start date
   S.classes.forEach((c) => { if (!c.termId) c.termId = S.terms[S.terms.length - 1].id; });
 }
 
