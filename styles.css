@@ -87,3 +87,4 @@ table.prev{width:100%;border-collapse:collapse;font-size:13px}table.prev th,tabl
 .x{width:44px;height:44px;border:0;background:transparent;color:var(--muted);font-size:20px;flex:none}
 .search input[type=text]{border:0;padding:0;border-radius:0;background:transparent}
 .toast.high{bottom:240px}
+a.btn{color:var(--ink)}

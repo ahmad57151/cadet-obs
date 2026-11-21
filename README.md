@@ -13,6 +13,6 @@ Import one course or several at a time; cadets are matched by GC No.
 
 ## Stages
 - [x] Stage 1 — import with preview, classes, record (cadet first / batch), undo, history & edit, pending list
-- [ ] Stage 2 — add/edit single cadet & Comd in app
+- [x] Stage 2 (part) — add/edit single cadet & Comd in app, create class without import
 - [ ] Stage 3 — reports, Excel export, backup & restore, PIN lock
 - [ ] Later — sitrep generator

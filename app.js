@@ -2,7 +2,7 @@
 /* Cadet Observations — Stage 1
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.1.0';
+const APP_VERSION = '0.2.0';
 const OBS_DEFAULT = [
   'Precis not in possession', 'Writing material not in possession', 'Arriving late', 'Missing from class',
   'Asg not submitted', 'Public speaking not prepared', 'Sleeping in class', 'Not behaving'
@@ -133,12 +133,10 @@ function classHeader(kicker) {
 function viewRecord() {
   const c = curClass();
   let body;
-  if (!Object.keys(S.cadets).length) {
-    body = `<div class="empty"><b>No cadets yet</b><span>Import your cadet list (Excel or CSV) to begin.</span>
-      <button class="btn pri" data-act="pickFile">Import cadet list</button></div>`;
-  } else if (!c) {
-    body = `<div class="empty"><b>Add your first class</b><span>A class is Subject + Course + Gp, e.g. ICT · 158 L/C · Gp A.</span>
-      <button class="btn pri" data-act="openClasses">Add class</button></div>`;
+  if (!c) {
+    body = `<div class="empty"><b>Set up your first class</b><span>A class is Subject + Course + Gp, e.g. ICT · 158 L/C · Gp A. Add the class, then add cadets by hand — or import an Excel/CSV list.</span>
+      <button class="btn pri" data-act="openClasses">Add class</button>
+      <button class="btn" data-act="pickFile">Import cadet list</button></div>`;
   } else {
     const cadets = classCadets(c);
     const pls = ['All', ...new Set(cadets.map((x) => x.pl))];
@@ -147,7 +145,8 @@ function viewRecord() {
       ${U.mode === 'batch' ? batchObsHtml() : ''}
       <div class="chips">${pls.map((p) => `<button class="chip ${U.pl === p ? 'on' : ''}" data-act="pl" data-arg="${esc(p)}">${esc(p)}</button>`).join('')}
       <span style="flex:1;text-align:right" class="small">${cadets.length} cadets</span></div>
-      <div id="list" class="list">${listHtml()}</div>`;
+      <div id="list" class="list">${listHtml()}</div>
+      ${U.mode === 'cadet' ? '<button class="btn dashed" data-act="newCadet">+ Add cadet to this class</button>' : ''}`;
     if (U.mode === 'batch') body += batchFootHtml();
   }
   return `<header class="hdr">${classHeader('Record')}
@@ -163,7 +162,8 @@ function filteredCadets() {
 
 function listHtml() {
   const rows = filteredCadets();
-  if (!rows.length) return '<div class="empty"><span>No cadet matches.</span></div>';
+  if (!rows.length) return classCadets(curClass()).length ? '<div class="empty"><span>No cadet matches.</span></div>'
+    : '<div class="empty"><b>No cadets in this class yet</b><span>Tap “+ Add cadet” below, or import a list from Settings.</span></div>';
   if (U.mode === 'batch') {
     return rows.map((x) => {
       const on = U.batchSel.has(x.gc);
@@ -234,7 +234,7 @@ function viewProfile() {
   const comdRow = (role, m) => `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #EFEDE5">
     <span class="grow"><span class="small" style="font-weight:600">${role}</span><span style="font-size:14px;font-weight:600">${m ? esc([m.rank, m.name].filter(Boolean).join(' ')) + (m.unit ? ' · ' + esc(m.unit) : '') : 'Not saved'}</span></span>
     ${m && m.phone ? `<a class="btn sm" style="display:flex;align-items:center;text-decoration:none" href="tel:${esc(m.phone)}">Call</a><a class="btn sm" style="display:flex;align-items:center;text-decoration:none" href="${waLink(m.phone, waText(x))}" target="_blank" rel="noopener">WhatsApp</a>` : ''}</div>`;
-  return `<header class="hdr"><div class="row" style="justify-content:flex-start"><button class="back" data-act="back" aria-label="Back">${ICON.back}</button></div>
+  return `<header class="hdr"><div class="row"><button class="back" data-act="back" aria-label="Back">${ICON.back}</button><button class="hbtn" data-act="editCadet" data-arg="${x.gc}">Edit cadet</button></div>
     <div style="display:flex;gap:14px;align-items:center"><span class="av" style="width:56px;height:56px;border-radius:28px;font-size:19px">${esc(initials(x.name))}</span>
     <span class="grow"><span style="font-size:20px;font-weight:700;display:flex;gap:8px;align-items:center;flex-wrap:wrap">${esc(x.name)}${x.tag ? `<span class="tag">${esc(x.tag)}</span>` : ''}</span>
     <span style="font-size:13px;color:#D9E3DA">GC ${x.gc} · ${esc(x.appt || 'GC')} · ${esc(x.pl)} · ${esc(x.course)} Gp ${esc(x.gp)}</span></span></div></header>
@@ -312,6 +312,7 @@ function viewSettings() {
       ${Object.entries(courses).sort().map(([k, v]) => `<span class="small">${esc(k)} — Gp ${[...v.gps].sort().join(', ')} · ${v.a} active${v.i ? ` · ${v.i} inactive` : ''}</span>`).join('')}
       ${S.lastImport ? `<span class="small">Last import: ${esc(S.lastImport.file)} · ${esc(fmtWhen(S.lastImport.ts))}</span>` : ''}
       <button class="btn pri" data-act="pickFile">Import Excel / CSV</button>
+      <div class="grid2"><button class="btn sm" data-act="newCadet">+ Add cadet</button><button class="btn sm" data-act="openCadetList">View / edit cadets</button></div>
       <span class="small">Import one course or several at a time. Cadets are matched by GC No — nothing recorded is lost.</span>
     </div>
     <span class="label">Classes</span>
@@ -321,10 +322,12 @@ function viewSettings() {
     <span class="label">Term</span>
     <label class="card field" style="padding:14px"><span>Term start date — “1st / 2nd time” counts start from here</span>
       <input type="date" id="termStart" value="${esc(S.settings.termStart)}"></label>
-    <span class="label">Comds directory</span>
-    <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:6px">
-      ${S.comds.length ? S.comds.map((m) => `<span class="small"><b style="color:#1C1C1A">${esc(m.role)} ${esc(m.key)}:</b> ${esc([m.rank, m.name, m.unit, m.phone].filter(Boolean).join(' · '))}</span>`).join('') : '<span class="small">None yet. Fill the Comds sheet in the template and import it.</span>'}
-      <span class="small">Adding/editing a single Comd or cadet in the app: Stage 2.</span></div>
+    <div class="between"><span class="label">Comds directory</span><button class="chip sm" style="border:0;color:#23402F" data-act="editComd" data-arg="new">+ Add</button></div>
+    <div class="card" style="overflow:hidden">
+      ${S.comds.length ? S.comds.slice().sort((a, b) => a.role.localeCompare(b.role) || a.key.localeCompare(b.key)).map((m) => `<button class="crow" style="border:0;border-bottom:1px solid #EFEDE5;border-radius:0" data-act="editComd" data-arg="${S.comds.indexOf(m)}">
+        <span style="width:84px;font-size:11px;font-weight:700;color:${m.role === 'Term Comd' ? '#1F3A5F' : '#23402F'}">${m.role === 'Term Comd' ? 'TERM' : 'PL'} · ${esc(m.key)}</span>
+        <span class="grow"><span style="font-size:14px;font-weight:600">${esc([m.rank, m.name].filter(Boolean).join(' '))}</span><span class="small">${esc([m.unit, m.phone].filter(Boolean).join(' · ') || 'No phone saved')}</span></span></button>`).join('')
+      : '<div style="padding:14px" class="small">None yet. Tap “+ Add”, or fill the Comds sheet in the template and import it.</div>'}</div>
     <span class="small" style="text-align:center;padding-top:8px">Cadet Obs v${APP_VERSION} · data stored only on this phone</span>
     </main>`;
 }
@@ -336,16 +339,16 @@ function sheetHtml() {
   if (s.type === 'classes') inner = classesSheet();
   else if (s.type === 'edit') inner = editSheet(s.id);
   else if (s.type === 'import') inner = importSheet();
+  else if (s.type === 'cadet') inner = cadetSheet();
+  else if (s.type === 'cadetList') inner = cadetListSheet();
+  else if (s.type === 'comd') inner = comdSheet();
   return `<div class="scrim" data-act="scrim"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${inner}</div></div>`;
 }
 
 function classesSheet() {
   const act = Object.values(S.cadets).filter((x) => x.active);
   const courses = [...new Set(act.map((x) => x.course))].sort();
-  const f = U.sheet.form || (U.sheet.form = { subject: '', course: courses[0] || '', gp: '' });
-  if (!courses.includes(f.course)) f.course = courses[0] || '';
-  const gps = [...new Set(act.filter((x) => x.course === f.course).map((x) => x.gp))].sort();
-  if (!gps.includes(f.gp)) f.gp = gps[0] || '';
+  const f = U.sheet.form || (U.sheet.form = { subject: '', course: courses[0] || '', gp: 'A' });
   const found = act.filter((x) => x.course === f.course && x.gp === f.gp);
   const pls = [...new Set(found.map((x) => x.pl))].join(', ');
   const rows = S.classes.map((c) => {
@@ -358,11 +361,12 @@ function classesSheet() {
   return `<h2>My classes</h2>${rows || '<span class="small">No classes yet.</span>'}
     <div style="border-top:1px solid #E6E4DC;padding-top:14px;display:flex;flex-direction:column;gap:10px">
     <span class="label">Add a class</span>
-    ${courses.length ? `<label class="field"><span>Subject</span><input type="text" id="fSubject" placeholder="e.g. ICT or GIS" value="${esc(f.subject)}"></label>
-    <div class="grid2"><label class="field"><span>Course</span><select id="fCourse">${courses.map((c) => `<option ${c === f.course ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
-    <label class="field"><span>Group</span><select id="fGp">${gps.map((g) => `<option value="${esc(g)}" ${g === f.gp ? 'selected' : ''}>Gp ${esc(g)}</option>`).join('')}</select></label></div>
-    <span class="small">${found.length} cadets found${pls ? ' · ' + esc(pls) : ''}</span>
-    <button class="btn pri" data-act="addClass">Add class</button>` : '<span class="small">Import your cadet list first.</span><button class="btn pri" data-act="pickFile">Import cadet list</button>'}
+    <label class="field"><span>Subject</span><input type="text" id="fSubject" placeholder="e.g. ICT or GIS" value="${esc(f.subject)}"></label>
+    <div class="grid2"><label class="field"><span>Course</span><input type="text" id="fCourse" list="courseList" placeholder="e.g. 158 L/C" value="${esc(f.course)}"></label>
+    <label class="field"><span>Group</span><select id="fGp">${['A', 'B'].map((g) => `<option value="${g}" ${g === f.gp ? 'selected' : ''}>Gp ${g}</option>`).join('')}</select></label></div>
+    <datalist id="courseList">${courses.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
+    <span class="small">${f.course ? (found.length ? `${found.length} cadets found · ${esc(pls)}` : 'No cadets yet for this course and group — you can add them by hand after creating the class.') : 'Type the course as it appears in your list, e.g. 158 L/C.'}</span>
+    <button class="btn pri" data-act="addClass">Add class</button>
     </div><button class="btn" data-act="closeSheet">Close</button>`;
 }
 
@@ -377,6 +381,58 @@ function editSheet(id) {
     <label class="field"><span>Note</span><textarea id="eNote">${esc(e.note || '')}</textarea></label>
     <button class="btn pri" data-act="saveEdit" data-arg="${e.id}">Save changes</button>
     <div class="grid2"><button class="btn danger" data-act="delEntry" data-arg="${e.id}">Delete</button><button class="btn" data-act="closeSheet">Cancel</button></div>`;
+}
+
+function cadetSheet() {
+  const s = U.sheet, x = s.gc ? S.cadets[s.gc] : null, c = curClass();
+  const d = x || s.prefill || { gc: '', name: '', tag: '', pl: '', appt: '', course: c ? c.course : '', gp: c ? c.gp : 'A', active: true };
+  const all = Object.values(S.cadets);
+  const pls = [...new Set(all.filter((y) => !d.course || y.course === d.course).map((y) => y.pl))].sort();
+  const courses = [...new Set(all.map((y) => y.course).concat(S.classes.map((y) => y.course)))].sort();
+  return `<h2>${x ? 'Edit cadet' : 'Add cadet'}</h2>
+    <label class="field"><span>GC No</span><input type="text" id="cGc" inputmode="numeric" value="${esc(d.gc)}" ${x ? 'readonly style="background:#F1F0EA"' : ''}></label>
+    <label class="field"><span>Name — add (PN), (PAF) etc. at the end if needed</span><input type="text" id="cName" value="${esc(d.name ? d.name + (d.tag ? ` (${d.tag})` : '') : '')}" autocapitalize="words"></label>
+    <div class="grid2"><label class="field"><span>Pl</span><input type="text" id="cPl" list="plList" value="${esc(d.pl)}" autocapitalize="characters"></label>
+    <label class="field"><span>Appt (blank = GC)</span><input type="text" id="cAppt" value="${esc(d.appt)}" placeholder="e.g. CSUO" autocapitalize="characters"></label></div>
+    <div class="grid2"><label class="field"><span>Course</span><input type="text" id="cCourse" list="cCourseList" value="${esc(d.course)}"></label>
+    <label class="field"><span>Group</span><select id="cGp">${['A', 'B'].map((g) => `<option value="${g}" ${g === d.gp ? 'selected' : ''}>Gp ${g}</option>`).join('')}</select></label></div>
+    <datalist id="plList">${pls.map((v) => `<option value="${esc(v)}">`).join('')}</datalist>
+    <datalist id="cCourseList">${courses.map((v) => `<option value="${esc(v)}">`).join('')}</datalist>
+    ${x ? `<label class="check"><input type="checkbox" id="cActive" ${x.active ? 'checked' : ''}><span>Active (untick if relegated / withdrawn — history is kept)</span></label>` : ''}
+    <button class="btn pri" data-act="saveCadet">${x ? 'Save changes' : 'Save'}</button>
+    ${x ? '' : '<button class="btn" data-act="saveCadet" data-arg="more">Save &amp; add another</button>'}
+    <button class="btn" data-act="closeSheet">Cancel</button>`;
+}
+
+function cadetListRows() {
+  const q = (U.sheet.q || '').trim().toLowerCase();
+  const rows = Object.values(S.cadets).filter((x) => !q || String(x.gc).includes(q) || x.name.toLowerCase().includes(q) || x.course.toLowerCase().includes(q) || x.pl.toLowerCase().includes(q))
+    .sort((a, b) => a.course.localeCompare(b.course) || a.gp.localeCompare(b.gp) || a.pl.localeCompare(b.pl) || a.gc - b.gc);
+  return rows.length ? rows.map((x) => `<button class="crow" style="min-height:54px;${x.active ? '' : 'opacity:.55'}" data-act="editCadet" data-arg="${x.gc}">
+    <span class="grow"><span class="nm">${esc(x.name)}${x.tag ? `<span class="tag">${esc(x.tag)}</span>` : ''}${x.active ? '' : '<span class="pill p-grey">Inactive</span>'}</span>
+    <span class="sub">GC ${x.gc} · ${esc(x.pl)} · ${esc(x.course)} Gp ${esc(x.gp)}${x.appt ? ' · ' + esc(x.appt) : ''}</span></span></button>`).join('')
+    : '<div class="empty"><span>No cadets.</span></div>';
+}
+function cadetListSheet() {
+  return `<div class="between"><h2>All cadets</h2><button class="btn sm pri" data-act="newCadet">+ Add</button></div>
+    <label class="search">${ICON.search}<input id="cq" type="text" placeholder="GC No, name, Pl or course" value="${esc(U.sheet.q || '')}"></label>
+    <div id="clist" class="list">${cadetListRows()}</div><button class="btn" data-act="closeSheet">Close</button>`;
+}
+
+function comdSheet() {
+  const i = U.sheet.idx, m = i === 'new' ? { role: 'Pl Comd', key: '', rank: '', name: '', unit: '', phone: '' } : S.comds[+i];
+  const pls = [...new Set(Object.values(S.cadets).map((x) => x.pl))].sort();
+  const courses = [...new Set(Object.values(S.cadets).map((x) => x.course).concat(S.classes.map((x) => x.course)))].sort();
+  return `<h2>${i === 'new' ? 'Add Comd' : 'Edit Comd'}</h2>
+    <div class="grid2"><label class="field"><span>Role</span><select id="mRole"><option ${m.role === 'Pl Comd' ? 'selected' : ''}>Pl Comd</option><option ${m.role === 'Term Comd' ? 'selected' : ''}>Term Comd</option></select></label>
+    <label class="field"><span>Pl (Pl Comd) / Course (Term Comd)</span><input type="text" id="mKey" list="mKeyList" value="${esc(m.key)}"></label></div>
+    <datalist id="mKeyList">${pls.concat(courses).map((v) => `<option value="${esc(v)}">`).join('')}</datalist>
+    <div class="grid2"><label class="field"><span>Rank</span><input type="text" id="mRank" value="${esc(m.rank)}" placeholder="e.g. Capt"></label>
+    <label class="field"><span>Unit</span><input type="text" id="mUnit" value="${esc(m.unit)}"></label></div>
+    <label class="field"><span>Name</span><input type="text" id="mName" value="${esc(m.name)}"></label>
+    <label class="field"><span>Phone</span><input type="tel" id="mPhone" value="${esc(m.phone)}" placeholder="03XX-XXXXXXX"></label>
+    <button class="btn pri" data-act="saveComd">Save</button>
+    <div class="grid2">${i === 'new' ? '' : '<button class="btn danger" data-act="delComd">Delete</button>'}<button class="btn" data-act="closeSheet" style="${i === 'new' ? 'grid-column:1/-1' : ''}">Cancel</button></div>`;
 }
 
 function importSheet() {
@@ -595,8 +651,9 @@ const A = {
   async pickClass(id) { S.settings.currentClass = id; U.pl = 'All'; U.batchSel.clear(); await save(); U.sheet = null; silentBack(); render(); },
   async addClass() {
     const f = U.sheet.form;
-    f.subject = $('#fSubject').value.trim();
+    f.subject = $('#fSubject').value.trim(); f.course = normCourse($('#fCourse').value); f.gp = $('#fGp').value;
     if (!f.subject) { alert('Enter the subject, e.g. ICT'); return; }
+    if (!f.course) { alert('Enter the course, e.g. 158 L/C'); return; }
     if (S.classes.some((c) => c.subject.toLowerCase() === f.subject.toLowerCase() && c.course === f.course && c.gp === f.gp)) { alert('This class already exists.'); return; }
     const c = { id: uid(), subject: f.subject, course: f.course, gp: f.gp };
     S.classes.push(c); S.settings.currentClass = c.id;
@@ -609,9 +666,55 @@ const A = {
     if (S.settings.currentClass === id) S.settings.currentClass = S.classes[0] ? S.classes[0].id : null;
     await save(); render();
   },
+  newCadet() {
+    const sub = U.sheet && U.sheet.type === 'cadetList';
+    U.sheet = { type: 'cadet', gc: null, back: sub ? { type: 'cadetList', q: U.sheet.q } : null };
+    if (!sub) pushNav();
+    render(); const g = $('#cGc'); if (g) g.focus();
+  },
+  editCadet(gc) {
+    const sub = U.sheet && U.sheet.type === 'cadetList';
+    U.sheet = { type: 'cadet', gc: +gc, back: sub ? { type: 'cadetList', q: U.sheet.q } : null };
+    if (!sub) pushNav();
+    render();
+  },
+  async saveCadet(more) {
+    const old = U.sheet.gc ? S.cadets[U.sheet.gc] : null;
+    const gc = old ? old.gc : parseInt($('#cGc').value.replace(/\D/g, ''), 10);
+    const { name, tag } = parseName($('#cName').value);
+    const pl = norm($('#cPl').value).toUpperCase(), course = normCourse($('#cCourse').value), gp = $('#cGp').value;
+    let appt = norm($('#cAppt').value).toUpperCase(); if (appt === 'GC') appt = '';
+    if (!gc) { alert('Enter the GC No (numbers only).'); return; }
+    if (!name || !pl || !course) { alert('Name, Pl and Course are required.'); return; }
+    if (!old && S.cadets[gc]) { alert(`GC ${gc} already exists: ${S.cadets[gc].name} (${S.cadets[gc].course}). Edit that cadet instead.`); return; }
+    const active = old ? $('#cActive').checked : true;
+    S.cadets[gc] = Object.assign({}, old || {}, { gc, name, tag, pl, appt, course, gp, active });
+    await save();
+    if (more === 'more') {
+      U.sheet = { type: 'cadet', gc: null, back: U.sheet.back, prefill: { gc: '', name: '', tag: '', pl, appt: '', course, gp } };
+      showToast('Cadet saved', `GC ${gc} ${name}`, null); render(); $('#cGc').focus(); return;
+    }
+    showToast(old ? 'Cadet updated' : 'Cadet added', `GC ${gc} ${name}`, null);
+    if (U.sheet.back) { U.sheet = U.sheet.back; render(); } else { U.sheet = null; silentBack(); }
+  },
+  openCadetList() { U.sheet = { type: 'cadetList', q: '' }; pushNav(); render(); },
+  editComd(i) { U.sheet = { type: 'comd', idx: i }; pushNav(); render(); },
+  async saveComd() {
+    const role = $('#mRole').value, rawKey = norm($('#mKey').value);
+    const m = { role, key: role === 'Term Comd' ? normCourse(rawKey) : rawKey.toUpperCase(), rank: norm($('#mRank').value), name: norm($('#mName').value), unit: norm($('#mUnit').value), phone: norm($('#mPhone').value) };
+    if (!m.key || !m.name) { alert('Pl/Course and Name are required.'); return; }
+    const i = U.sheet.idx;
+    const dup = S.comds.findIndex((y) => y.role === m.role && y.key === m.key);
+    if (i === 'new') { if (dup >= 0) S.comds[dup] = m; else S.comds.push(m); } else S.comds[+i] = m;
+    await save(); U.sheet = null; silentBack(); showToast('Comd saved', `${m.role} ${m.key}`, null);
+  },
+  async delComd() {
+    if (!confirm('Delete this Comd?')) return;
+    S.comds.splice(+U.sheet.idx, 1); await save(); U.sheet = null; silentBack();
+  },
   pickFile() { $('#fileInput').value = ''; $('#fileInput').click(); },
   applyImport() { applyImport(); },
-  closeSheet() { history.back(); },
+  closeSheet() { if (U.sheet && U.sheet.back) { U.sheet = U.sheet.back; render(); } else history.back(); },
   scrim(_, el, ev) { if (ev.target === el) history.back(); },
   back() { history.back(); }
 };
@@ -628,14 +731,18 @@ document.addEventListener('input', (ev) => {
   if (t.id === 'q') { U.q = t.value; const l = $('#list'); if (l) l.innerHTML = listHtml(); }
   else if (t.id === 'note') U.note = t.value;
   else if (t.id === 'fSubject' && U.sheet && U.sheet.form) U.sheet.form.subject = t.value;
+  else if (t.id === 'fCourse' && U.sheet && U.sheet.form) U.sheet.form.course = t.value;
+  else if (t.id === 'cq') { U.sheet.q = t.value; $('#clist').innerHTML = cadetListRows(); }
 });
 document.addEventListener('change', async (ev) => {
   const t = ev.target;
   if (t.id === 'batchPun') U.batchPun = t.value;
   else if (t.id === 'fCourse' || t.id === 'fGp') {
-    const f = U.sheet.form; f.subject = $('#fSubject').value;
-    if (t.id === 'fCourse') { f.course = t.value; f.gp = ''; } else f.gp = t.value;
+    const f = U.sheet.form;
+    f.subject = $('#fSubject').value; f.course = normCourse($('#fCourse').value); f.gp = $('#fGp').value;
+    const focusId = document.activeElement && document.activeElement.id;
     render();
+    if (focusId) { const el = document.getElementById(focusId); if (el) el.focus(); }
   } else if (t.id === 'termStart' && t.value) { S.settings.termStart = t.value; await save(); showToast('Term start saved', t.value, null); render(); }
   else if (t.id === 'fileInput' && t.files[0]) handleFile(t.files[0]);
 });

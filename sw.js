@@ -1,5 +1,5 @@
 // Offline cache for the app shell. Bump VERSION on every release.
-const VERSION = 'v0.1.0';
+const VERSION = 'v0.2.0';
 const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.json', 'vendor/xlsx.mini.min.js', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
