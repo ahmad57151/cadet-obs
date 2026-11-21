@@ -2,7 +2,7 @@
 /* Cadet Observations — Stage 1
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.3.1';
+const APP_VERSION = '0.4.0';
 const OBS_DEFAULT = [
   'Precis not in possession', 'Writing material not in possession', 'Arriving late', 'Missing from class',
   'Asg not submitted', 'Public speaking not prepared', 'Sleeping in class', 'Not behaving'
@@ -44,7 +44,7 @@ const DB = {
 const today = () => new Date().toISOString().slice(0, 10);
 let S = null; // persisted state
 const freshState = () => ({
-  v: 1, cadets: {}, classes: [], entries: [], comds: [],
+  v: 1, cadets: {}, classes: [], entries: [], comds: [], terms: [{ id: uid(), name: 'Term 1', start: today() }],
   settings: { currentClass: null, termStart: today(), obs: OBS_DEFAULT.slice() }
 });
 async function save() { await DB.set('state', S); }
@@ -71,7 +71,10 @@ const fmtWhen = (ts) => {
   if (d.toDateString() === now.toDateString()) return 'Today ' + t;
   return d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }) + ' ' + t;
 };
-const curClass = () => S.classes.find((c) => c.id === S.settings.currentClass) || null;
+const liveClasses = () => S.classes.filter((c) => !c.archived);
+const curClass = () => liveClasses().find((c) => c.id === S.settings.currentClass) || null;
+const curTerm = () => S.terms[S.terms.length - 1];
+const termOf = (c) => S.terms.find((t) => t.id === c.termId);
 const className = (c) => c ? `${c.subject} · ${c.course} · Gp ${c.gp}` : '';
 const classCadets = (c) => !c ? [] : Object.values(S.cadets)
   .filter((x) => x.active && x.course === c.course && x.gp === c.gp)
@@ -362,22 +365,26 @@ function viewPending() {
 }
 
 /* ---------- reports ---------- */
-function repRange() {
+function repRange() { // [from, to)
   const r = U.rep, now = new Date();
-  if (r.period === 'week') { const d = new Date(now); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.getTime(); }
-  if (r.period === 'month') return new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-  if (r.period === 'all') return 0;
-  return termTs();
+  if (r.period === 'week') { const d = new Date(now); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return [d.getTime(), Infinity]; }
+  if (r.period === 'month') return [new Date(now.getFullYear(), now.getMonth(), 1).getTime(), Infinity];
+  if (r.period === 'all') return [0, Infinity];
+  const i = Math.max(0, S.terms.findIndex((t) => t.id === r.term));
+  const t = S.terms[i] || curTerm(), next = S.terms[i + 1];
+  return [new Date(t.start + 'T00:00:00').getTime(), next ? new Date(next.start + 'T00:00:00').getTime() : Infinity];
 }
 function repEntries() {
-  const r = U.rep, from = repRange();
-  return S.entries.filter((e) => e.ts >= from && (r.cls === 'all' || e.classId === r.cls));
+  const r = U.rep, [from, to] = repRange();
+  return S.entries.filter((e) => e.ts >= from && e.ts < to && (r.cls === 'all' || e.classId === r.cls));
 }
 const PERIODS = [['week', 'Week'], ['month', 'Month'], ['term', 'Term'], ['all', 'All']];
 
 function viewReports() {
-  const r = U.rep || (U.rep = { cls: S.settings.currentClass || 'all', period: 'term' });
+  const r = U.rep || (U.rep = { cls: S.settings.currentClass || 'all', period: 'term', term: curTerm().id });
   if (r.cls !== 'all' && !S.classes.some((c) => c.id === r.cls)) r.cls = 'all';
+  if (!S.terms.some((t) => t.id === r.term)) r.term = curTerm().id;
+  const arch = S.classes.filter((c) => c.archived);
   const es = repEntries();
   const byObs = {}; es.forEach((e) => { byObs[e.obs] = (byObs[e.obs] || 0) + 1; });
   const obsRows = Object.entries(byObs).sort((a, b) => b[1] - a[1]);
@@ -389,8 +396,11 @@ function viewReports() {
   return `<header class="hdr"><div class="row"><h1>Reports</h1></div>
     <select id="repCls" aria-label="Class" style="background:#183026;color:#fff;border:0;font-weight:600">
       <option value="all" ${r.cls === 'all' ? 'selected' : ''}>All classes</option>
-      ${S.classes.map((c) => `<option value="${c.id}" ${r.cls === c.id ? 'selected' : ''}>${esc(className(c))}</option>`).join('')}</select>
-    <div class="seg">${PERIODS.map(([k, l]) => `<button class="${r.period === k ? 'on' : ''}" data-act="repPeriod" data-arg="${k}">${l}</button>`).join('')}</div></header>
+      ${liveClasses().map((c) => `<option value="${c.id}" ${r.cls === c.id ? 'selected' : ''}>${esc(className(c))}</option>`).join('')}
+      ${arch.length ? `<optgroup label="Previous terms">${arch.map((c) => `<option value="${c.id}" ${r.cls === c.id ? 'selected' : ''}>${esc(className(c))} (${esc((termOf(c) || {}).name || 'old')})</option>`).join('')}</optgroup>` : ''}</select>
+    <div class="seg">${PERIODS.map(([k, l]) => `<button class="${r.period === k ? 'on' : ''}" data-act="repPeriod" data-arg="${k}">${l}</button>`).join('')}</div>
+    ${r.period === 'term' && S.terms.length > 1 ? `<select id="repTerm" aria-label="Term" style="background:#183026;color:#fff;border:0">${S.terms.slice().reverse().map((t) =>
+      `<option value="${t.id}" ${r.term === t.id ? 'selected' : ''}>${esc(t.name)} (from ${esc(t.start)})${t === curTerm() ? ' · current' : ''}</option>`).join('')}</select>` : ''}</header>
     <main class="body">
     <div class="grid3 tiles"><div class="t"><b>${es.length}</b><span>Observations</span></div><div class="t"><b>${Object.keys(byCadet).length}</b><span>Cadets</span></div>
     <div class="t"><b style="color:${pend ? '#7A4300' : '#1C1C1A'}">${pend}</b><span>Pending</span></div></div>
@@ -434,7 +444,8 @@ function buildXlsx() {
   XLSX.utils.book_append_sheet(wb, ws2, 'By cadet');
   const c = r.cls === 'all' ? null : cls(r.cls);
   const tag = (c ? `${c.subject}_${c.course}_Gp${c.gp}` : 'AllClasses').replace(/[^A-Za-z0-9]+/g, '_');
-  const name = `CadetObs_${tag}_${r.period}_${today()}.xlsx`;
+  const perName = r.period === 'term' ? (S.terms.find((t) => t.id === r.term) || curTerm()).name : r.period;
+  const name = `CadetObs_${tag}_${perName.replace(/[^A-Za-z0-9]+/g, '_')}_${today()}.xlsx`;
   const data = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
   return new File([data], name, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
@@ -473,16 +484,21 @@ function viewSettings() {
   return `<header class="hdr"><span class="kicker">Set up once</span><h1>Settings</h1></header><main class="body">
     <div class="between"><span class="label">My classes</span><button class="chip sm" style="border:0;color:#23402F" data-act="openClasses">+ Add class</button></div>
     <div class="card" style="overflow:hidden">
-      ${S.classes.length ? S.classes.map((c) => { const n = classCadets(c).length;
+      ${liveClasses().length ? liveClasses().map((c) => { const n = classCadets(c).length;
         return `<button class="crow" style="border:0;border-bottom:1px solid #EFEDE5;border-radius:0" data-act="openClass" data-arg="${c.id}">
         <span class="grow"><span class="nm">${esc(className(c))}${c.id === S.settings.currentClass ? '<span class="pill p-ok">Recording</span>' : ''}</span>
         <span class="sub">${n} cadet${n === 1 ? '' : 's'} · tap to import / add / edit</span></span><span aria-hidden="true">›</span></button>`; }).join('')
       : '<div style="padding:14px" class="small">No classes yet. Tap “+ Add class”.</div>'}</div>
-    <button class="btn sm" data-act="openCadetList">Search all cadets (${act} active)</button>
+    <div class="grid2"><button class="btn sm" data-act="openCadetList">All cadets (${act})</button>
+    <button class="btn sm" data-act="openArchived" ${S.classes.some((c) => c.archived) ? '' : 'disabled'}>Old classes (${S.classes.filter((c) => c.archived).length})</button></div>
 
     <span class="label">Term</span>
-    <label class="card field" style="padding:14px"><span>Term start date — “1st / 2nd time” counts start from here</span>
-      <input type="date" id="termStart" value="${esc(S.settings.termStart)}"></label>
+    <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
+      <div class="grid2"><label class="field"><span>Term name</span><input type="text" id="termName" value="${esc(curTerm().name)}"></label>
+      <label class="field"><span>Started on</span><input type="date" id="termStart" value="${esc(S.settings.termStart)}"></label></div>
+      <span class="small">“1st / 2nd time” counts start from this date.${S.terms.length > 1 ? ` ${S.terms.length - 1} previous term${S.terms.length > 2 ? 's' : ''} kept for reports.` : ''}</span>
+      <button class="btn sm" data-act="openNewTerm">Start new term…</button>
+    </div>
 
     <div class="between"><span class="label">Comds directory</span><button class="chip sm" style="border:0;color:#23402F" data-act="editComd" data-arg="new">+ Add</button></div>
     <div class="card" style="overflow:hidden">
@@ -546,6 +562,8 @@ function sheetHtml() {
   else if (s.type === 'cadet') inner = cadetSheet();
   else if (s.type === 'cadetList') inner = cadetListSheet();
   else if (s.type === 'comd') inner = comdSheet();
+  else if (s.type === 'newTerm') inner = newTermSheet();
+  else if (s.type === 'archived') inner = archivedSheet();
   return `<div class="scrim" data-act="scrim"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${inner}</div></div>`;
 }
 
@@ -560,7 +578,7 @@ function classesSheet() {
   const act = Object.values(S.cadets).filter((x) => x.active);
   const courses = [...new Set(act.map((x) => x.course))].sort();
   const f = U.sheet.form || (U.sheet.form = { subject: '', course: courses[0] || '', gp: 'A' });
-  const rows = S.classes.map((c) => {
+  const rows = liveClasses().map((c) => {
     const on = c.id === S.settings.currentClass, n = classCadets(c).length;
     const pl = [...new Set(classCadets(c).map((x) => x.pl))].join(', ');
     return `<div style="display:flex;gap:6px;align-items:center"><button class="crow ${on ? 'sel' : ''}" data-act="pickClass" data-arg="${c.id}">
@@ -628,6 +646,32 @@ function cadetListSheet() {
   return `<h2>All cadets</h2><span class="small">To add cadets, open a class and use Import or + Add cadet.</span>
     <label class="search">${ICON.search}<input id="cq" type="text" placeholder="GC No, name, Pl or course" value="${esc(U.sheet.q || '')}"></label>
     <div id="clist" class="list">${cadetListRows()}</div><button class="btn" data-act="closeSheet">Close</button>`;
+}
+
+function newTermSheet() {
+  const t = curTerm(), lc = liveClasses();
+  const pend = S.entries.filter((e) => e.status === 'pending').length;
+  const d = daysSince(S.settings.lastBackup);
+  return `<h2>Start new term</h2>
+    <span class="small">Finishing: <b style="color:#1C1C1A">${esc(t.name)}</b> (from ${esc(t.start)}) · ${lc.length} class${lc.length === 1 ? '' : 'es'} · ${S.entries.filter((e) => e.ts >= termTs()).length} records</span>
+    <div class="${d === 0 ? 'hint ok' : 'warn'}" style="display:flex;align-items:center;gap:10px"><span style="flex:1">${d === 0 ? 'Backup saved today.' : 'Step 1: save a backup of the finished term first.'}</span>
+      <button class="btn sm" style="flex:none" data-act="backup" data-arg="save">Back up</button></div>
+    <div class="grid2"><label class="field"><span>New term name</span><input type="text" id="ntName" value="Term ${S.terms.length + 1}"></label>
+    <label class="field"><span>Starts on</span><input type="date" id="ntStart" value="${today()}"></label></div>
+    <label class="check"><input type="checkbox" id="ntArchive" checked><span>Move the current ${lc.length} class${lc.length === 1 ? '' : 'es'} to “Old classes”. You then add this term's classes fresh. Old records stay in history and reports.</span></label>
+    ${pend ? `<label class="check"><input type="checkbox" id="ntClose"><span>Mark the ${pend} pending action${pend > 1 ? 's' : ''} as done (leave unticked to keep them on the Pending tab).</span></label>` : ''}
+    <span class="small">Cadets are not deleted. Counts (“1st / 2nd time”) restart from the new date; earlier observations show as “previous term” in each cadet's history.</span>
+    <button class="btn pri" data-act="startNewTerm">Start new term</button><button class="btn" data-act="closeSheet">Cancel</button>`;
+}
+
+function archivedSheet() {
+  const arch = S.classes.filter((c) => c.archived);
+  return `<h2>Old classes</h2><span class="small">Classes from previous terms. Their records stay in history and in Reports (choose them under “Previous terms”).</span>
+    ${arch.map((c) => { const n = S.entries.filter((e) => e.classId === c.id).length;
+      return `<div class="card" style="padding:12px 14px;display:flex;align-items:center;gap:10px"><span class="grow"><span class="nm">${esc(className(c))}</span>
+      <span class="sub">${esc((termOf(c) || {}).name || '')} · ${n} record${n === 1 ? '' : 's'}</span></span>
+      <button class="btn sm" style="flex:none" data-act="unarchive" data-arg="${c.id}">Use again</button></div>`; }).join('')}
+    <button class="btn" data-act="closeSheet">Close</button>`;
 }
 
 function comdSheet() {
@@ -886,8 +930,8 @@ const A = {
     f.subject = $('#fSubject').value.trim(); f.course = normCourse($('#fCourse').value); f.gp = $('#fGp').value;
     if (!f.subject) { uiAlert('Enter the subject, e.g. ICT'); return; }
     if (!f.course) { uiAlert('Enter the course, e.g. 158 L/C'); return; }
-    if (S.classes.some((c) => c.subject.toLowerCase() === f.subject.toLowerCase() && c.course === f.course && c.gp === f.gp)) { uiAlert('This class already exists.'); return; }
-    const c = { id: uid(), subject: f.subject, course: f.course, gp: f.gp };
+    if (liveClasses().some((c) => c.subject.toLowerCase() === f.subject.toLowerCase() && c.course === f.course && c.gp === f.gp)) { uiAlert('This class already exists.'); return; }
+    const c = { id: uid(), subject: f.subject, course: f.course, gp: f.gp, termId: curTerm().id };
     S.classes.push(c); S.settings.currentClass = c.id;
     await save();
     // the classes sheet's history entry is reused for the class screen
@@ -898,7 +942,7 @@ const A = {
     const c = S.classes.find((y) => y.id === id);
     if (!(await uiConfirm('Cadets and recorded entries are kept.', { title: `Remove class “${className(c)}”?`, ok: 'Remove', danger: true }))) return;
     S.classes = S.classes.filter((y) => y.id !== id);
-    if (S.settings.currentClass === id) S.settings.currentClass = S.classes[0] ? S.classes[0].id : null;
+    if (S.settings.currentClass === id) S.settings.currentClass = liveClasses()[0] ? liveClasses()[0].id : null;
     await save(); history.back(); showToast('Class removed', 'Cadets and entries are kept', null);
   },
   newCadet() {
@@ -950,6 +994,26 @@ const A = {
     S.comds.splice(+U.sheet.idx, 1); await save(); U.sheet = null; silentBack();
   },
   repPeriod(k) { U.rep.period = k; render(); },
+  openNewTerm() { U.sheet = { type: 'newTerm' }; pushNav(); render(); },
+  openArchived() { U.sheet = { type: 'archived' }; pushNav(); render(); },
+  async unarchive(id) {
+    const c = S.classes.find((y) => y.id === id); c.archived = false; c.termId = curTerm().id;
+    await save(); showToast('Class back in use', className(c), null); render();
+  },
+  async startNewTerm() {
+    const name = norm($('#ntName').value) || `Term ${S.terms.length + 1}`, start = $('#ntStart').value;
+    if (!start) { uiAlert('Choose the start date of the new term.'); return; }
+    if (start <= curTerm().start) { uiAlert(`The new term must start after ${curTerm().start}.`); return; }
+    const archive = $('#ntArchive').checked, close = $('#ntClose') && $('#ntClose').checked;
+    if (!(await uiConfirm(`${name} starts on ${start}.${archive ? '\nCurrent classes move to “Old classes”.' : ''}${close ? '\nPending actions are marked done.' : ''}`, { title: 'Start new term?', ok: 'Start' }))) return;
+    S.terms.push({ id: uid(), name, start });
+    S.settings.termStart = start;
+    if (archive) { liveClasses().forEach((c) => { c.archived = true; }); S.settings.currentClass = null; }
+    if (close) S.entries.forEach((e) => { if (e.status === 'pending') e.status = 'done'; });
+    U.rep = null;
+    await save(); U.sheet = null; silentBack();
+    showToast(`${name} started`, archive ? 'Now add this term’s classes' : 'Counts restart from today', null); render();
+  },
   exportXlsx(how) {
     const f = buildXlsx();
     if (how === 'share') shareFile(f); else { downloadFile(f); showToast('Excel saved', f.name + ' (Downloads)', null); render(); }
@@ -1014,12 +1078,23 @@ document.addEventListener('change', async (ev) => {
     const f = U.sheet.form;
     f.subject = $('#fSubject').value; f.course = normCourse($('#fCourse').value); f.gp = $('#fGp').value;
     $('#fHint').innerHTML = classHint(f); // update hint only: a full redraw would swallow the tap on Add class
-  } else if (t.id === 'termStart' && t.value) { S.settings.termStart = t.value; await save(); showToast('Term start saved', t.value, null); render(); }
+  } else if (t.id === 'termStart' && t.value) {
+    const prev = S.terms[S.terms.length - 2];
+    if (prev && t.value <= prev.start) { uiAlert(`Must be after the previous term's start (${prev.start}).`); render(); return; }
+    S.settings.termStart = t.value; curTerm().start = t.value; await save(); showToast('Term start saved', t.value, null); render();
+  } else if (t.id === 'termName' && norm(t.value)) { curTerm().name = norm(t.value); await save(); showToast('Term name saved', curTerm().name, null); }
+  else if (t.id === 'repTerm') { U.rep.term = t.value; render(); }
   else if (t.id === 'fileInput' && t.files[0]) handleFile(t.files[0]);
   else if (t.id === 'repCls') { U.rep.cls = t.value; render(); }
   else if (t.id === 'restoreInput' && t.files[0]) restoreFrom(t.files[0]);
 });
 window.addEventListener('popstate', goBack);
+
+function migrate() { // fill fields added in later versions
+  S.settings = Object.assign(freshState().settings, S.settings || {});
+  if (!S.terms || !S.terms.length) S.terms = [{ id: uid(), name: 'Term 1', start: S.settings.termStart }];
+  S.classes.forEach((c) => { if (!c.termId) c.termId = S.terms[S.terms.length - 1].id; });
+}
 
 async function restoreFrom(f) {
   let b;
@@ -1029,7 +1104,7 @@ async function restoreFrom(f) {
   const msg = `Backup of ${new Date(b.exported).toLocaleString()}\n${Object.keys(st.cadets).length} cadets · ${st.classes.length} classes · ${st.entries.length} records\n\nThis replaces all data currently on this phone.`;
   if (!(await uiConfirm(msg, { title: 'Restore backup?', ok: 'Restore', danger: true }))) return;
   S = Object.assign(freshState(), st);
-  S.settings = Object.assign(freshState().settings, st.settings || {});
+  migrate();
   await save(); U.view = 'record'; U.cadet = null; U.rep = null;
   showToast('Backup restored', `${st.entries.length} records`, null); render();
 }
@@ -1045,7 +1120,7 @@ document.addEventListener('visibilitychange', () => {
   try {
     await DB.open();
     S = (await DB.get('state')) || freshState();
-    S.settings = Object.assign(freshState().settings, S.settings);
+    migrate();
     if (S.settings.pinHash) U.lock = { mode: 'unlock', pin: '', msg: '' };
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
   } catch (err) {
