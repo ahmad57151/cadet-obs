@@ -2,7 +2,7 @@
 /* Cadet Observations — Stage 1
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.4.8';
+const APP_VERSION = '0.4.9';
 const CREDIT = 'Developed by Maj Ahmad Mujtaba, AEC (Cptr Sc)';
 const OBS_DEFAULT = [
   'Precis not in possession', 'Writing material not in possession', 'Arriving late', 'Missing from class',
@@ -480,7 +480,7 @@ function viewReports() {
     : '<div class="empty"><span>No observations in this period.</span></div>'}
     ${filt.length ? '<span class="small">Excel export includes only the filtered entries.</span>' : ''}
     <div class="grid2"><button class="btn pri" data-act="exportXlsx" data-arg="save" ${es.length ? '' : 'disabled'}>Export Excel</button>
-    <button class="btn" data-act="exportXlsx" data-arg="share" ${es.length && canShareFiles() ? '' : 'disabled'}>Share Excel</button></div>
+    <button class="btn" data-act="exportXlsx" data-arg="share" ${es.length && navigator.share ? '' : 'disabled'}>Share Excel</button></div>
     </main>`;
 }
 
@@ -524,15 +524,19 @@ function downloadFile(file) {
   a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
+// Returns 'shared', 'cancelled' or 'blocked'. Android Chrome only shares some file
+// types (text, PDF, images…); others are refused with “Permission denied”.
 async function shareFile(file) {
-  try { await navigator.share({ files: [file], title: file.name }); return true; }
-  catch (e) { if (e.name !== 'AbortError') uiAlert('Could not share: ' + e.message); return false; }
+  try { if (navigator.canShare && !navigator.canShare({ files: [file] })) return 'blocked'; } catch (e) { return 'blocked'; }
+  try { await navigator.share({ files: [file], title: file.name }); return 'shared'; }
+  catch (e) { return e.name === 'AbortError' ? 'cancelled' : 'blocked'; }
 }
 
 /* ---------- backup ---------- */
+// Backups are plain text (.txt) so Android allows sharing them to WhatsApp/Drive/Gmail.
 function backupFile() {
   const data = JSON.stringify({ app: 'cadet-obs', v: 1, exported: Date.now(), state: S });
-  return new File([data], `CadetObs_backup_${today()}.json`, { type: 'application/json' });
+  return new File([data], `CadetObs_backup_${today()}.txt`, { type: 'text/plain' });
 }
 const daysSince = (ts) => ts ? Math.floor((Date.now() - ts) / 86400000) : null;
 function termBanner() {
@@ -584,7 +588,7 @@ function viewSettings() {
       <button class="btn sm pri" data-act="backup" data-arg="save">Save backup file</button>
       <button class="btn sm" data-act="backup" data-arg="share" ${canShareFiles() ? '' : 'disabled'}>Share backup (WhatsApp, Drive…)</button>
       <button class="btn sm" data-act="pickRestore">Restore from backup…</button>
-      <span class="small">The backup is one .json file with everything (cadets, classes, records, Comds). Keep it in Google Drive or send it to yourself. Restoring replaces all data on this phone.</span>
+      <span class="small">The backup is one file (CadetObs_backup_date.txt) with everything: cadets, classes, records, Comds. Keep it in Google Drive or send it to yourself on WhatsApp. Restoring replaces all data on this phone.</span>
     </div>
 
     <span class="label">Security</span>
@@ -1118,14 +1122,27 @@ const A = {
     await save(); U.sheet = null; silentBack();
     showToast(`${name} started`, archive ? 'Now add this term’s classes' : 'Counts restart from today', null); render();
   },
-  exportXlsx(how) {
+  async exportXlsx(how) {
     const f = buildXlsx();
-    if (how === 'share') shareFile(f); else { downloadFile(f); showToast('Excel saved', f.name + ' (Downloads)', null); render(); }
+    if (how === 'share') {
+      const r = await shareFile(f);
+      if (r !== 'blocked') return;
+      downloadFile(f);
+      uiAlert(`This phone does not allow sharing Excel files directly, so it was saved to Downloads instead:\n${f.name}\n\nTo send it, open the Files app → Downloads, long-press the file and tap Share.`, 'Saved to Downloads');
+      return;
+    }
+    downloadFile(f); showToast('Excel saved', f.name + ' (Downloads)', null); render();
   },
   async backup(how) {
     const f = backupFile();
-    const ok = how === 'share' ? await shareFile(f) : (downloadFile(f), true);
-    if (ok) { S.settings.lastBackup = Date.now(); await save(); showToast('Backup saved', how === 'share' ? f.name : f.name + ' (Downloads)', null); render(); }
+    let note = f.name + ' (Downloads)';
+    if (how === 'share') {
+      const r = await shareFile(f);
+      if (r === 'cancelled') return;
+      if (r === 'blocked') { downloadFile(f); uiAlert(`Sharing is not allowed on this phone, so the backup was saved to Downloads instead:\n${f.name}`, 'Saved to Downloads'); }
+      else note = f.name;
+    } else downloadFile(f);
+    S.settings.lastBackup = Date.now(); await save(); showToast('Backup saved', note, null); render();
   },
   pickRestore() { $('#restoreInput').value = ''; $('#restoreInput').click(); },
   pinSetup() { U.lock = { mode: 'set1', pin: '', first: '', msg: '' }; render(); },
