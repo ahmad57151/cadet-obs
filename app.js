@@ -2,7 +2,7 @@
 /* GC's Obsn - PMA (cadet observations)
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.6.0';
+const APP_VERSION = '0.6.1';
 const APP_NAME = "GC's Obsn - PMA";
 const FILE_TAG = 'GCs_Obsn_PMA';
 const CREDIT = 'Developed by Maj Ahmad Mujtaba, AEC (Cptr Sc)';
@@ -615,7 +615,7 @@ function viewSettings() {
     <span class="label">Security</span>
     <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
       <span style="font-size:14px;font-weight:600">PIN lock: ${S.settings.pinHash ? 'On' : 'Off'}</span>
-      ${S.settings.pinHash ? '<div class="grid2"><button class="btn sm" data-act="pinSetup">Change PIN</button><button class="btn sm" data-act="pinOff">Turn off</button></div>'
+      ${S.settings.pinHash ? '<div class="grid2"><button class="btn sm" data-act="pinChange">Change PIN</button><button class="btn sm" data-act="pinOff">Turn off</button></div>'
         : '<button class="btn sm pri" data-act="pinSetup">Set a 4-digit PIN</button>'}
       <span class="small">Asked when the app opens and after 1 minute in the background. If you forget the PIN, the only way in is to erase all data — keep a backup.</span>
     </div>
@@ -637,7 +637,7 @@ function lockHtml() {
   const L = U.lock;
   const dots = [0, 1, 2, 3].map((i) => `<span style="width:16px;height:16px;border-radius:8px;border:2px solid #fff;background:${i < L.pin.length ? '#fff' : 'transparent'}"></span>`).join('');
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'];
-  const title = L.mode === 'unlock' ? 'Enter PIN' : L.mode === 'set1' ? 'Choose a 4-digit PIN' : 'Enter the PIN again';
+  const title = L.mode === 'unlock' ? 'Enter PIN' : L.mode === 'verify' ? 'Enter your current PIN' : L.mode === 'set1' ? (L.changing ? 'Choose a new 4-digit PIN' : 'Choose a 4-digit PIN') : 'Enter the PIN again';
   return `<div style="position:fixed;inset:0;background:#23402F;color:#fff;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:safe center;gap:18px;padding:24px 24px 16px;overflow-y:auto">
     ${LOGO(104)}
     <span style="font-size:15px;font-weight:600;color:#D9E3DA;margin-top:-8px">${esc(APP_NAME)}</span>
@@ -995,6 +995,7 @@ function silentBack() { U._skipPop = true; history.back(); }
 function goBack() {
   if (U._skipPop) { U._skipPop = false; render(); return; }
   if (U.dialog) { pushNav(); closeDialog(false); return; }
+  if (U.sheet && U.sheet.back) { pushNav(); U.sheet = U.sheet.back; render(); return; } // back button: return to the parent sheet
   if (U.sheet) { U.sheet = null; U.preview = null; }
   else if (U.view === 'profile') { U.view = U.profileFrom || 'record'; U.profile = null; }
   else if (U.view === 'class') { if (U.clsSel) { U.clsSel = null; pushNav(); render(); return; } U.view = U.classFrom || 'record'; }
@@ -1279,7 +1280,9 @@ const A = {
   },
   pickRestore() { $('#restoreInput').value = ''; $('#restoreInput').click(); },
   pinSetup() { U.lock = { mode: 'set1', pin: '', first: '', msg: '' }; render(); },
-  async pinOff() { if (!(await uiConfirm('The app will open without a PIN.', { title: 'Turn off PIN lock?', ok: 'Turn off' }))) return; delete S.settings.pinHash; await save(); showToast('PIN lock off', '', null); render(); },
+  // turning off or changing the PIN first asks for the current PIN
+  pinOff() { U.lock = { mode: 'verify', then: 'off', pin: '', msg: '' }; render(); },
+  pinChange() { U.lock = { mode: 'verify', then: 'change', pin: '', msg: '' }; render(); },
   pinCancel() { U.lock = null; render(); },
   async pinKey(k) {
     const L = U.lock;
@@ -1290,8 +1293,12 @@ const A = {
     if (L.mode === 'unlock') {
       if (await hashPin(L.pin) === S.settings.pinHash) { U.lock = null; render(); }
       else { L.pin = ''; L.msg = 'Wrong PIN'; render(); }
+    } else if (L.mode === 'verify') {
+      if (await hashPin(L.pin) !== S.settings.pinHash) { L.pin = ''; L.msg = 'Wrong PIN'; render(); return; }
+      if (L.then === 'off') { delete S.settings.pinHash; await save(); U.lock = null; showToast('PIN lock off', 'The app opens without a PIN', null); render(); }
+      else { U.lock = { mode: 'set1', changing: true, pin: '', first: '', msg: '' }; render(); }
     } else if (L.mode === 'set1') { L.first = L.pin; L.pin = ''; L.mode = 'set2'; L.msg = ''; render(); }
-    else if (L.pin === L.first) { S.settings.pinHash = await hashPin(L.pin); await save(); U.lock = null; showToast('PIN set', 'Asked when the app opens', null); render(); }
+    else if (L.pin === L.first) { const ch = L.changing; S.settings.pinHash = await hashPin(L.pin); await save(); U.lock = null; showToast(ch ? 'PIN changed' : 'PIN set', 'Asked when the app opens', null); render(); }
     else { L.mode = 'set1'; L.pin = ''; L.first = ''; L.msg = 'PINs did not match — try again'; render(); }
   },
   async forgotPin() {
@@ -1305,7 +1312,7 @@ const A = {
   pickFile(id) { U.importClassId = id || U.classId; $('#fileInput').value = ''; $('#fileInput').click(); },
   applyImport() { applyImport(); },
   closeSheet() { if (U.sheet && U.sheet.back) { U.sheet = U.sheet.back; render(); } else history.back(); },
-  scrim(_, el, ev) { if (ev.target === el) history.back(); },
+  scrim(_, el, ev) { if (ev.target === el) A.closeSheet(); },
   back() { history.back(); }
 };
 
