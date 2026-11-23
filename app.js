@@ -2,7 +2,7 @@
 /* GC's Obsn - PMA (cadet observations)
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.5.1';
+const APP_VERSION = '0.6.0';
 const APP_NAME = "GC's Obsn - PMA";
 const FILE_TAG = 'GCs_Obsn_PMA';
 const CREDIT = 'Developed by Maj Ahmad Mujtaba, AEC (Cptr Sc)';
@@ -10,13 +10,20 @@ const OBS_DEFAULT = [
   'Precis not in possession', 'Writing material not in possession', 'Arriving late', 'Missing from class',
   'Asg not submitted', 'Public speaking not prepared', 'Sleeping in class', 'Not behaving'
 ];
-const PUN = [
-  { id: 'back', label: 'Stand at the back', pending: false, cls: '' },
-  { id: 'warn', label: 'Verbal warning', pending: false, cls: '' },
-  { id: 'plcomd', label: 'Talk to Pl Comd', pending: true, cls: 'amb' },
-  { id: 'sitrep', label: 'Initiate sitrep', pending: true, cls: 'red' }
+// Default punishments. Each instructor can edit the list in Settings.
+// follow: needs follow-up (stays on Pending until marked done)
+// contact: '' | 'pl' | 'term' — which Comd's contact to show on Pending
+const PUN_DEFAULT = [
+  { id: 'back', label: 'Stand at the back', follow: false, contact: '' },
+  { id: 'warn', label: 'Verbal warning', follow: false, contact: '' },
+  { id: 'plcomd', label: 'Talk to Pl Comd', follow: true, contact: 'pl' },
+  { id: 'sitrep', label: 'Initiate sitrep', follow: true, contact: '' }
 ];
-const punLabel = (id) => (PUN.find((p) => p.id === id) || { label: 'Not decided' }).label;
+const puns = () => S.settings.puns.filter((p) => !p.hidden);          // shown for recording
+const punById = (id) => S.settings.puns.find((p) => p.id === id);     // includes removed ones (for history)
+const punLabel = (id) => !id ? 'Not decided' : (punById(id) || { label: 'Removed punishment' }).label;
+const punCls = (p) => p.contact ? 'amb' : p.follow ? 'red' : '';
+const CONTACTS = [['', 'No contact'], ['pl', 'Pl Comd'], ['term', 'Term Comd']];
 
 /* ---------- storage ---------- */
 const DB = {
@@ -66,7 +73,7 @@ const freshState = () => {
   const start = firstTermStart();
   return {
     v: 1, cadets: {}, classes: [], entries: [], comds: [], terms: [{ id: uid(), name: seasonOf(start).name, start }],
-    settings: { currentClass: null, termStart: start, obs: OBS_DEFAULT.slice() }
+    settings: { currentClass: null, termStart: start, obs: OBS_DEFAULT.slice(), puns: PUN_DEFAULT.map((d) => Object.assign({}, d)) }
   };
 };
 async function save() { await DB.set('state', S); }
@@ -247,9 +254,10 @@ function batchObsHtml() {
 }
 
 function batchFootHtml() {
+  if (U.batchPun && !puns().some((p) => p.id === U.batchPun)) U.batchPun = puns()[0] ? puns()[0].id : '';
   const n = U.batchSel.size, ok = n && U.batchObs;
   return `<div class="foot"><label class="field"><span class="label">3 · Punishment for all ticked</span>
-    <select id="batchPun">${PUN.map((p) => `<option value="${p.id}" ${U.batchPun === p.id ? 'selected' : ''}>${p.label}</option>`).join('')}
+    <select id="batchPun">${puns().map((p) => `<option value="${p.id}" ${U.batchPun === p.id ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}
     <option value="" ${U.batchPun === '' ? 'selected' : ''}>Decide later (each cadet)</option></select></label>
     <button class="btn pri" data-act="batchSave" ${ok ? '' : 'disabled'}>${ok ? `Save “${esc(U.batchObs)}” for ${n} cadet${n > 1 ? 's' : ''}` : (U.batchObs ? 'Tick cadets' : 'Choose an observation')}</button></div>`;
 }
@@ -276,7 +284,7 @@ function viewCadet() {
     <main class="body">
     <span class="label">1 · Observation</span><div class="grid2">${obsHtml}</div>${hint}
     <span class="label" style="padding-top:4px">2 · Punishment — tap to save</span>
-    <div class="grid2">${PUN.map((p) => `<button class="pun ${p.cls}" data-act="savePun" data-arg="${p.id}" ${dis}>${p.label}</button>`).join('')}
+    <div class="grid2">${puns().map((p) => `<button class="pun ${punCls(p)}" data-act="savePun" data-arg="${p.id}" ${dis}>${esc(p.label)}</button>`).join('')}
     <button class="pun later" data-act="savePun" data-arg="" ${dis}>Decide later</button></div>
     ${U.showNote ? `<label class="field"><span>Note (optional — kept for sitrep)</span><textarea id="note" placeholder="e.g. Arrived 12 min late, no reason given">${esc(U.note)}</textarea></label>`
       : '<button class="btn dashed" data-act="showNote">+ Add note (optional)</button>'}
@@ -345,7 +353,8 @@ function histHtml(e, old) {
 
 function waText(x) {
   const te = termEntries(x.gc);
-  const parts = S.settings.obs.map((o) => [o, te.filter((e) => e.obs === o).length]).filter(([, n]) => n).map(([o, n]) => `${n}× ${o}`);
+  const cnt = {}; te.forEach((e) => { cnt[e.obs] = (cnt[e.obs] || 0) + 1; });
+  const parts = Object.entries(cnt).sort((a, b) => b[1] - a[1]).map(([o, n]) => `${n}× ${o}`);
   return `AoA Sir. GC ${x.gc} ${x.name} (${x.pl}), ${x.course}: ${te.length} observation${te.length === 1 ? '' : 's'} this term — ${parts.join(', ')}. Request your attention.`;
 }
 function waLink(phone, text) {
@@ -402,20 +411,23 @@ function viewPending() {
   const card = (e) => {
     const x = S.cadets[e.gc] || { name: 'Unknown', gc: e.gc, pl: '', course: '' };
     const cls = S.classes.find((c) => c.id === e.classId);
-    const m = e.pun === 'plcomd' ? comdFor('Pl Comd', x.pl) : null;
+    const pp = punById(e.pun) || {}, role = pp.contact === 'pl' ? 'Pl Comd' : pp.contact === 'term' ? 'Term Comd' : null;
+    const key = role === 'Pl Comd' ? x.pl : x.course;
+    const m = role ? comdFor(role, key) : null;
     return `<div class="card" style="padding:14px;display:flex;flex-direction:column;gap:8px">
       <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline"><b style="font-size:15px;min-width:0">${esc(x.name)}</b><span class="small" style="white-space:nowrap">${esc(fmtWhen(e.ts))}</span></div>
       <span class="sub">GC ${x.gc} · ${esc(x.pl)}</span>
       <span class="sub" style="color:#3F3F3A">${esc(e.obs)}${cls ? ' · ' + esc(className(cls)) : ''}</span>
       ${e.note ? `<span class="small">“${esc(e.note)}”</span>` : ''}
-      ${e.pun === 'plcomd' ? `<div style="background:#F5F4EF;border-radius:10px;padding:10px 12px" class="small"><b style="color:#1C1C1A">Pl Comd ${esc(x.pl)}:</b> ${m ? esc([m.rank, m.name, m.unit, m.phone].filter(Boolean).join(' · ')) : 'not saved yet (import Comds sheet)'}</div>` : ''}
+      ${role ? `<div style="background:#F5F4EF;border-radius:10px;padding:10px 12px" class="small"><b style="color:#1C1C1A">${role} ${esc(key)}:</b> ${m ? esc([m.rank, m.name, m.unit, m.phone].filter(Boolean).join(' · ')) : 'not saved yet (Settings → Comds directory)'}</div>` : ''}
       <div style="display:flex;gap:8px">
       ${!e.pun ? `<button class="btn sm pri" style="flex:1" data-act="editEntry" data-arg="${e.id}">Decide punishment</button>` : ''}
       ${m && m.phone ? `<a class="btn sm" style="flex:1;display:flex;align-items:center;justify-content:center;text-decoration:none" href="tel:${esc(m.phone)}">Call</a>
         <a class="btn sm" style="flex:1;display:flex;align-items:center;justify-content:center;text-decoration:none" href="${waLink(m.phone, waText(x))}" target="_blank" rel="noopener">WhatsApp</a>` : ''}
-      ${e.pun ? `<button class="btn sm pri" style="flex:1" data-act="markDone" data-arg="${e.id}">${e.pun === 'sitrep' ? 'Mark sent' : 'Done'}</button>` : ''}</div></div>`;
+      ${e.pun ? `<button class="btn sm pri" style="flex:1" data-act="markDone" data-arg="${e.id}">Done</button>` : ''}</div></div>`;
   };
-  const groups = [['plcomd', 'Talk to Pl Comd'], ['sitrep', 'Sitrep to initiate'], [null, 'Punishment not decided']];
+  const groups = S.settings.puns.map((p) => [p.id, p.label]).concat([[null, 'Punishment not decided']]);
+  list.forEach((e) => { if (e.pun && !punById(e.pun)) groups.splice(groups.length - 1, 0, [e.pun, punLabel(e.pun)]); });
   const body = list.length ? groups.map(([k, l]) => {
     const g = list.filter((e) => (e.pun || null) === k);
     return g.length ? `<span class="label">${l}</span>${g.map(card).join('')}` : '';
@@ -473,7 +485,7 @@ function viewReports() {
     ${base.length ? `<span class="label">By observation · tap to filter</span>
     <div class="card" style="padding:6px;display:flex;flex-direction:column;gap:2px">${obsRows.length ? obsRows.map(([o, n]) => filterBar('repObs', o, o, n, max, r.obs)).join('') : '<span class="small" style="padding:8px">None for this punishment.</span>'}</div>
     <span class="label">Punishments · tap to filter</span>
-    <div class="card" style="padding:6px;display:flex;flex-direction:column;gap:2px">${PUN.map((pn) => [pn.id, pn.label]).concat([['none', 'Not decided yet']])
+    <div class="card" style="padding:6px;display:flex;flex-direction:column;gap:2px">${S.settings.puns.map((pn) => [pn.id, pn.label]).concat([['none', 'Not decided yet']])
       .filter(([k]) => byPun[k] || r.pun === k).map(([k, l]) => filterBar('repPun', k, l, byPun[k] || 0, pmax, r.pun)).join('') || '<span class="small" style="padding:8px">None for this observation.</span>'}</div>
     <div class="between"><span class="label">${filt.length ? 'Cadets · ' + esc(filt.join(' + ')) : 'Most observations'}</span>${filt.length ? '<button class="chip sm" data-act="repClear">Clear ✕</button>' : ''}</div>
     <div class="list">${top.map(([gc, n], i) => { const x = S.cadets[gc] || { name: '?', pl: '' };
@@ -570,6 +582,11 @@ function viewSettings() {
     <div class="grid2"><button class="btn sm" data-act="openCadetList">All cadets · ${act}</button>
     <button class="btn sm" data-act="openArchived" ${S.classes.some((c) => c.archived) ? '' : 'disabled'}>Old classes · ${S.classes.filter((c) => c.archived).length}</button></div>
 
+    <span class="label">Observations &amp; punishments</span>
+    <button class="crow" data-act="openLists" data-arg="obs">
+      <span class="grow"><span class="nm">${S.settings.obs.length} observations · ${puns().length} punishments</span>
+      <span class="sub">Add, rename, reorder or delete your own</span></span><span aria-hidden="true">›</span></button>
+
     <span class="label">Term</span>
     <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
       <div style="display:flex;flex-direction:column;gap:2px"><b style="font-size:18px;white-space:nowrap">${esc(curTerm().name)}</b><span class="small">Ends around ${esc(fmtD(termEnd(curTerm())))}</span></div>
@@ -647,6 +664,8 @@ function sheetHtml() {
   else if (s.type === 'comd') inner = comdSheet();
   else if (s.type === 'newTerm') inner = newTermSheet();
   else if (s.type === 'archived') inner = archivedSheet();
+  else if (s.type === 'lists') inner = listsSheet();
+  else if (s.type === 'item') inner = itemSheet();
   return `<div class="scrim" data-act="scrim"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${inner}</div></div>`;
 }
 
@@ -686,7 +705,7 @@ function editSheet(id) {
   const x = S.cadets[e.gc];
   return `<h2>Edit entry</h2><span class="small">${esc(x ? x.name : e.gc)} · GC ${e.gc} · ${esc(fmtWhen(e.ts))}</span>
     <label class="field"><span>Observation</span><select id="eObs">${S.settings.obs.concat(S.settings.obs.includes(e.obs) ? [] : [e.obs]).map((o) => `<option ${o === e.obs ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></label>
-    <label class="field"><span>Punishment</span><select id="ePun">${PUN.map((p) => `<option value="${p.id}" ${p.id === e.pun ? 'selected' : ''}>${p.label}</option>`).join('')}<option value="" ${!e.pun ? 'selected' : ''}>Not decided</option></select></label>
+    <label class="field"><span>Punishment</span><select id="ePun">${S.settings.puns.filter((p) => !p.hidden || p.id === e.pun).map((p) => `<option value="${p.id}" ${p.id === e.pun ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}<option value="" ${!e.pun ? 'selected' : ''}>Not decided</option></select></label>
     <label class="field"><span>Status</span><select id="eStatus"><option value="done" ${e.status === 'done' ? 'selected' : ''}>Done</option><option value="pending" ${e.status === 'pending' ? 'selected' : ''}>Pending</option></select></label>
     <label class="field"><span>Note</span><textarea id="eNote">${esc(e.note || '')}</textarea></label>
     <button class="btn pri" data-act="saveEdit" data-arg="${e.id}">Save changes</button>
@@ -745,6 +764,48 @@ function newTermSheet() {
     ${pend ? `<label class="check"><input type="checkbox" id="ntClose"><span>Mark the ${pend} pending action${pend > 1 ? 's' : ''} as done (leave unticked to keep them on the Pending tab).</span></label>` : ''}
     <span class="small">Cadets are not deleted. Counts (“1st / 2nd time”) restart from the new date; earlier observations show as “previous term” in each cadet's history.</span>
     <button class="btn pri" data-act="startNewTerm">Start new term</button><button class="btn" data-act="closeSheet">Cancel</button>`;
+}
+
+function listsSheet() {
+  const tab = U.sheet.tab;
+  const used = (fn) => S.entries.filter(fn).length;
+  const row = (arg, label, sub, first, last) => `<div style="display:flex;gap:4px;align-items:center">
+    <button class="crow" style="min-height:54px" data-act="editItem" data-arg="${esc(arg)}"><span class="grow"><span class="nm">${esc(label)}</span>${sub ? `<span class="sub">${sub}</span>` : ''}</span></button>
+    <button class="x" data-act="moveItem" data-arg="${esc(arg)}|-1" aria-label="Move ${esc(label)} up" ${first ? 'disabled style="opacity:.25"' : ''}>↑</button>
+    <button class="x" data-act="moveItem" data-arg="${esc(arg)}|1" aria-label="Move ${esc(label)} down" ${last ? 'disabled style="opacity:.25"' : ''}>↓</button></div>`;
+  const ob = S.settings.obs, pv = puns();
+  const rows = tab === 'obs'
+    ? ob.map((o, i) => { const n = used((e) => e.obs === o); return row(i, o, n ? `${n} record${n > 1 ? 's' : ''}` : '', i === 0, i === ob.length - 1); }).join('')
+    : pv.map((p, i) => { const n = used((e) => e.pun === p.id);
+        const tags = [p.follow ? 'Goes to Pending' : 'Done on the spot', p.contact ? `shows ${p.contact === 'pl' ? 'Pl Comd' : 'Term Comd'} contact` : '', n ? `${n} record${n > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ');
+        return row(p.id, p.label, esc(tags), i === 0, i === pv.length - 1); }).join('');
+  return `<h2>Observations &amp; punishments</h2>
+    <div class="seg" style="background:#EFEDE5"><button class="${tab === 'obs' ? 'on' : ''}" style="${tab === 'obs' ? '' : 'color:#3F3F3A'}" data-act="listTab" data-arg="obs">Observations · ${ob.length}</button>
+    <button class="${tab === 'pun' ? 'on' : ''}" style="${tab === 'pun' ? '' : 'color:#3F3F3A'}" data-act="listTab" data-arg="pun">Punishments · ${pv.length}</button></div>
+    <span class="small">Tap to rename or delete. Arrows set the order of the buttons on the record screen.${tab === 'pun' ? ' “Decide later” is always available.' : ''}</span>
+    <div class="list">${rows || '<div class="empty"><span>None yet.</span></div>'}</div>
+    <button class="btn pri" data-act="editItem" data-arg="new">+ Add ${tab === 'obs' ? 'observation' : 'punishment'}</button>
+    <button class="btn sm" data-act="restoreLists">Restore the original ${tab === 'obs' ? 'observations' : 'punishments'}</button>
+    <span class="small">Changes apply to new records. Renaming an observation also renames it in past records. Deleted items disappear from the buttons, but records already made keep them in history and reports.</span>
+    <button class="btn" data-act="closeSheet">Close</button>`;
+}
+
+function itemSheet() {
+  const { kind, key } = U.sheet, isNew = key === 'new';
+  if (kind === 'obs') {
+    const v = isNew ? '' : S.settings.obs[+key];
+    return `<h2>${isNew ? 'Add observation' : 'Edit observation'}</h2>
+      <label class="field"><span>Observation</span><input type="text" id="iName" value="${esc(v)}" placeholder="e.g. Mobile phone in class" maxlength="60"></label>
+      <button class="btn pri" data-act="saveItem">Save</button>
+      <div class="grid2">${isNew ? '' : '<button class="btn danger" data-act="delItem">Delete</button>'}<button class="btn" data-act="closeSheet" style="${isNew ? 'grid-column:1/-1' : ''}">Cancel</button></div>`;
+  }
+  const p = isNew ? { label: '', follow: false, contact: '' } : punById(key);
+  return `<h2>${isNew ? 'Add punishment' : 'Edit punishment'}</h2>
+    <label class="field"><span>Punishment</span><input type="text" id="iName" value="${esc(p.label)}" placeholder="e.g. Extra assignment" maxlength="40"></label>
+    <label class="check"><input type="checkbox" id="iFollow" ${p.follow ? 'checked' : ''}><span><b>Needs follow-up</b> — stays on the Pending tab until you mark it done (e.g. talk to Pl Comd, sitrep). Untick for punishments given on the spot.</span></label>
+    <label class="field"><span>Show a Comd's contact (Call / WhatsApp) on Pending</span><select id="iContact">${CONTACTS.map(([k, l]) => `<option value="${k}" ${p.contact === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    <button class="btn pri" data-act="saveItem">Save</button>
+    <div class="grid2">${isNew ? '' : '<button class="btn danger" data-act="delItem">Delete</button>'}<button class="btn" data-act="closeSheet" style="${isNew ? 'grid-column:1/-1' : ''}">Cancel</button></div>`;
 }
 
 function archivedSheet() {
@@ -922,8 +983,8 @@ function showToast(msg, sub, undo) {
 }
 
 function addEntry(gc, obs, pun, note) {
-  const p = PUN.find((y) => y.id === pun);
-  const e = { id: uid(), ts: Date.now(), gc, classId: S.settings.currentClass, obs, pun: pun || null, status: !pun || p.pending ? 'pending' : 'done', note: note || '' };
+  const p = punById(pun);
+  const e = { id: uid(), ts: Date.now(), gc, classId: S.settings.currentClass, obs, pun: pun || null, status: !pun || !p || p.follow ? 'pending' : 'done', note: note || '' };
   S.entries.push(e);
   return e;
 }
@@ -988,9 +1049,10 @@ const A = {
   openProfile(gc) { U.histObs = null; U.histAll = false; U.profileFrom = U.view === 'profile' ? U.profileFrom : U.view; U.profile = +gc; U.view = 'profile'; U.cadet = null; pushNav(); render(); window.scrollTo(0, 0); },
   editEntry(id) { U.sheet = { type: 'edit', id }; pushNav(); render(); },
   async saveEdit(id) {
-    const e = S.entries.find((y) => y.id === id);
+    const e = S.entries.find((y) => y.id === id), prevPun = e.pun, prevStatus = e.status;
     e.obs = $('#eObs').value; e.pun = $('#ePun').value || null; e.status = $('#eStatus').value; e.note = $('#eNote').value.trim();
     if (!e.pun) e.status = 'pending';
+    else if (prevPun !== e.pun && $('#eStatus').value === prevStatus) e.status = (punById(e.pun) || {}).follow ? 'pending' : 'done';
     await save(); U.sheet = null; silentBack(); showToast('Entry updated', e.obs, null); render();
   },
   async delEntry(id) {
@@ -1106,6 +1168,65 @@ const A = {
     const r = await installEvt.userChoice.catch(() => null);
     installEvt = null; render();
     if (r && r.outcome === 'dismissed') showToast('Not installed', 'Settings → Install, any time', null);
+  },
+  openLists(tab) { U.sheet = { type: 'lists', tab: tab || 'obs' }; pushNav(); render(); },
+  listTab(t) { U.sheet.tab = t; render(); },
+  editItem(key) { U.sheet = { type: 'item', kind: U.sheet.tab, key, back: { type: 'lists', tab: U.sheet.tab } }; render(); const i = $('#iName'); if (i && key === 'new') i.focus(); },
+  async moveItem(arg) {
+    const [key, d] = arg.split('|'), dir = +d;
+    if (U.sheet.tab === 'obs') {
+      const a = S.settings.obs, i = +key, j = i + dir;
+      if (j < 0 || j >= a.length) return; [a[i], a[j]] = [a[j], a[i]];
+    } else {
+      const vis = puns(), i = vis.findIndex((p) => p.id === key), j = i + dir;
+      if (j < 0 || j >= vis.length) return;
+      const all = S.settings.puns, ai = all.indexOf(vis[i]), aj = all.indexOf(vis[j]); [all[ai], all[aj]] = [all[aj], all[ai]];
+    }
+    await save(); render();
+  },
+  async saveItem() {
+    const { kind, key } = U.sheet, isNew = key === 'new', name = norm($('#iName').value).replace(/\s+/g, ' ');
+    if (!name) { uiAlert('Please type a name.'); return; }
+    if (kind === 'obs') {
+      const a = S.settings.obs, old = isNew ? null : a[+key];
+      if (a.some((o, i) => o.toLowerCase() === name.toLowerCase() && (isNew || i !== +key))) { uiAlert(`“${name}” is already in the list.`); return; }
+      let moved = 0;
+      if (isNew) a.push(name);
+      else { a[+key] = name; if (old !== name) S.entries.forEach((e) => { if (e.obs === old) { e.obs = name; moved++; } }); }
+      await save(); U.sheet = U.sheet.back;
+      showToast(isNew ? 'Observation added' : 'Observation saved', moved ? `${moved} past record${moved > 1 ? 's' : ''} renamed too` : name, null); render(); return;
+    }
+    const follow = $('#iFollow').checked, contact = $('#iContact').value;
+    if (puns().some((p) => p.label.toLowerCase() === name.toLowerCase() && (isNew || p.id !== key))) { uiAlert(`“${name}” is already in the list.`); return; }
+    if (isNew) S.settings.puns.push({ id: uid(), label: name, follow, contact });
+    else Object.assign(punById(key), { label: name, follow, contact });
+    await save(); U.sheet = U.sheet.back; showToast(isNew ? 'Punishment added' : 'Punishment saved', name, null); render();
+  },
+  async delItem() {
+    const { kind, key } = U.sheet;
+    if (kind === 'obs') {
+      const a = S.settings.obs, o = a[+key], n = S.entries.filter((e) => e.obs === o).length;
+      if (a.length <= 1) { uiAlert('Keep at least one observation.'); return; }
+      if (!(await uiConfirm(`It disappears from the record buttons.${n ? ` The ${n} record${n > 1 ? 's' : ''} already made keep it in history and reports.` : ''}`, { title: `Delete “${o}”?`, ok: 'Delete', danger: true }))) return;
+      a.splice(+key, 1);
+    } else {
+      const p = punById(key), n = S.entries.filter((e) => e.pun === key).length;
+      if (!(await uiConfirm(`It disappears from the record buttons.${n ? ` The ${n} record${n > 1 ? 's' : ''} already made keep it in history and reports.` : ''}`, { title: `Delete “${p.label}”?`, ok: 'Delete', danger: true }))) return;
+      if (n) p.hidden = true; else S.settings.puns.splice(S.settings.puns.indexOf(p), 1);
+    }
+    await save(); U.sheet = U.sheet.back; showToast('Deleted', '', null); render();
+  },
+  async restoreLists() {
+    const tab = U.sheet.tab;
+    if (!(await uiConfirm(tab === 'obs' ? 'The list goes back to the original 8 observations. Your own observations are removed from the buttons (past records keep them).'
+      : 'The list goes back to the original 4 punishments. Your own punishments are removed from the buttons (past records keep them).', { title: 'Restore the original list?', ok: 'Restore' }))) return;
+    if (tab === 'obs') S.settings.obs = OBS_DEFAULT.slice();
+    else {
+      const used = new Set(S.entries.map((e) => e.pun));
+      const custom = S.settings.puns.filter((p) => !PUN_DEFAULT.some((d) => d.id === p.id) && used.has(p.id)).map((p) => Object.assign(p, { hidden: true }));
+      S.settings.puns = PUN_DEFAULT.map((d) => Object.assign({}, d)).concat(custom);
+    }
+    await save(); showToast('Original list restored', '', null); render();
   },
   repPeriod(k) { U.rep.period = k; render(); },
   repObs(o) { U.rep.obs = U.rep.obs === o ? null : o; U.rep.allTop = false; render(); },
@@ -1231,6 +1352,8 @@ window.addEventListener('popstate', goBack);
 
 function migrate() { // fill fields added in later versions
   S.settings = Object.assign(freshState().settings, S.settings || {});
+  if (!Array.isArray(S.settings.puns) || !S.settings.puns.length) S.settings.puns = PUN_DEFAULT.map((d) => Object.assign({}, d));
+  if (!Array.isArray(S.settings.obs) || !S.settings.obs.length) S.settings.obs = OBS_DEFAULT.slice();
   if (!S.terms || !S.terms.length) S.terms = [{ id: uid(), start: S.settings.termStart }];
   S.terms.forEach((t) => { t.name = seasonOf(t.start).name; }); // names always follow the start date
   S.classes.forEach((c) => { if (!c.termId) c.termId = S.terms[S.terms.length - 1].id; });
