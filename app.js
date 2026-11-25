@@ -2,7 +2,7 @@
 /* GC's Obsn - PMA (cadet observations)
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.7.1';
+const APP_VERSION = '0.7.2';
 const APP_NAME = "GC's Obsn - PMA";
 const FILE_TAG = 'GCs_Obsn_PMA';
 const CREDIT = 'Developed by Maj Ahmad Mujtaba, AEC (Cptr Sc)';
@@ -693,12 +693,19 @@ function rptText(d) {
   return L.join('\n');
 }
 
+const RFMT = [['png', 'Picture'], ['pdf', 'PDF'], ['text', 'Text'], ['xlsx', 'Excel']];
+const RFMT_NOTE = {
+  png: 'A4 page(s) as pictures — open on any phone without this app.',
+  pdf: 'The same A4 pages as one PDF — for printing or email.',
+  text: 'A formatted message you can paste into any chat or note.',
+  xlsx: 'Full details for your own records, including punishments, status and notes.'
+};
+
 function plRptSheet() {
   const r = U.sheet.r, pls = rptPls(r.cls);
   if (r.pl !== '*' && !pls.includes(r.pl)) r.pl = pls[0] || '';
-  const allPl = r.pl === '*';
+  const allPl = r.pl === '*', fmt = r.fmt || 'png';
   const d = r.pl ? rptData(r) : null, ok = d && d.es.length;
-  const m = r.pl && !allPl ? comdFor('Pl Comd', r.pl) : null;
   const seg = (k, l) => `<button class="${r.period === k ? 'on' : ''}" style="${r.period === k ? '' : 'color:#3F3F3A'}" data-act="rPer" data-arg="${k}">${l}</button>`;
   return `<h2>Platoon report</h2>
     <label class="field"><span>Class</span><select id="rClass">${liveClasses().map((c) => `<option value="${c.id}" ${r.cls === c.id ? 'selected' : ''}>${esc(className(c))}</option>`).join('')}
@@ -711,14 +718,15 @@ function plRptSheet() {
       ${r.period === 'term' ? `<span class="small">${esc(curTerm().name)}, from ${esc(fmtD(curTerm().start))}</span>` : ''}</div>
     <div class="${ok ? 'hint ok' : 'warn'}" style="flex-direction:column;align-items:flex-start;gap:2px"><b>${ok ? `${d.rows.length} GC${d.rows.length > 1 ? 's' : ''} with observations · ${d.es.length} observation${d.es.length > 1 ? 's' : ''}` : 'No observations for this selection'}</b>
       <span class="small" style="color:inherit">Only GCs with observations are included · no punishments</span></div>
-    <span class="label">Send as</span>
-    <button class="btn pri" data-act="rSend" data-arg="png" ${ok ? '' : 'disabled'}>Picture — share on WhatsApp</button>
-    <div class="grid2"><button class="btn" data-act="rSend" data-arg="pdf" ${ok ? '' : 'disabled'}>PDF (A4)</button><button class="btn" data-act="rSend" data-arg="text" ${ok ? '' : 'disabled'}>${allPl ? 'Text (WhatsApp)' : 'Text to Pl Comd'}</button></div>
-    <span class="small" style="text-align:center">${allPl ? 'Text: WhatsApp will ask you to pick the contact' : m && m.phone ? `Text opens WhatsApp with ${esc([m.rank, m.name].filter(Boolean).join(' '))} (Pl Comd ${esc(r.pl)})` : `No phone saved for Pl Comd ${esc(r.pl || '')} — WhatsApp will ask you to pick the contact`}</span>
-    <button class="btn sm" data-act="rSend" data-arg="xlsx" ${ok ? '' : 'disabled'}>Excel — full details for your records</button>
-    <span class="small" style="text-align:center;margin-top:-6px">Excel also has punishments, status and notes. Saved to Downloads.</span>
-    <button class="btn sm" data-act="rPreview" ${ok ? '' : 'disabled'}>Preview</button>
-    <div id="rPrev" class="list">${U.sheet.prev === 'loading' ? '<span class="small">Preparing…</span>' : (U.sheet.prev || []).map((u, i) => `<img src="${u}" alt="Report page ${i + 1}" style="width:100%;border:1px solid #DAD8CF;border-radius:8px">`).join('')}</div>
+    <span class="label">Format</span>
+    <div class="seg" style="background:#EFEDE5">${RFMT.map(([k, l]) => `<button class="${fmt === k ? 'on' : ''}" style="${fmt === k ? '' : 'color:#3F3F3A'}" data-act="rFmt" data-arg="${k}">${l}</button>`).join('')}</div>
+    <span class="small">${RFMT_NOTE[fmt]}</span>
+    <div class="grid2"><button class="btn pri" data-act="rSend" data-arg="share" ${ok ? '' : 'disabled'}>Share…</button><button class="btn" data-act="rSend" data-arg="save" ${ok ? '' : 'disabled'}>Save to phone</button></div>
+    <span class="small" style="text-align:center">Share… lets you choose any app. Save to phone puts the file in your Downloads folder.</span>
+    ${fmt === 'xlsx' ? '' : `<button class="btn sm" data-act="rPreview" ${ok ? '' : 'disabled'}>Preview</button>`}
+    <div id="rPrev" class="list">${U.sheet.prev === 'loading' ? '<span class="small">Preparing…</span>'
+      : typeof U.sheet.prev === 'string' ? `<div class="card" style="padding:12px;white-space:pre-wrap;font-size:13px;line-height:1.45">${esc(U.sheet.prev)}</div>`
+      : (U.sheet.prev || []).map((u, i) => `<img src="${u}" alt="Report page ${i + 1}" style="width:100%;border:1px solid #DAD8CF;border-radius:8px">`).join('')}</div>
     <button class="btn" data-act="closeSheet">Close</button>`;
 }
 
@@ -742,7 +750,7 @@ async function shareFile(file, text) {
 }
 
 /* ---------- backup ---------- */
-// Backups are plain text (.txt) so Android allows sharing them to WhatsApp/Drive/Gmail.
+// Backups are plain text (.txt) so Android allows sharing them to other apps (Drive, Gmail…).
 function backupFile() {
   const data = JSON.stringify({ app: 'cadet-obs', v: 1, exported: Date.now(), state: S });
   return new File([data], `${FILE_TAG}_backup_${today()}.txt`, { type: 'text/plain' });
@@ -800,9 +808,9 @@ function viewSettings() {
     <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
       <span style="font-size:14px;font-weight:600;color:${d === null || d >= 7 ? '#A1271B' : '#23402F'}">${lb ? `Last backup: ${esc(fmtWhen(lb))}` : 'No backup yet'}</span>
       <button class="btn sm pri" data-act="backup" data-arg="save">Save backup file</button>
-      <button class="btn sm" data-act="backup" data-arg="share" ${canShareFiles() ? '' : 'disabled'}>Share backup (WhatsApp, Drive…)</button>
+      <button class="btn sm" data-act="backup" data-arg="share" ${canShareFiles() ? '' : 'disabled'}>Share backup…</button>
       <button class="btn sm" data-act="pickRestore">Restore from backup…</button>
-      <span class="small">The backup is one file (${FILE_TAG}_backup_date.txt) with everything: cadets, classes, records, Comds. Keep it in Google Drive or send it to yourself on WhatsApp. Restoring replaces all data on this phone.</span>
+      <span class="small">The backup is one file (${FILE_TAG}_backup_date.txt) with everything: cadets, classes, records, Comds. Keep a copy somewhere safe, e.g. Google Drive or your email. Restoring replaces all data on this phone.</span>
     </div>
 
     ${installCard()}
@@ -1369,23 +1377,33 @@ const A = {
   rPl(p) { U.sheet.r.pl = p; U.sheet.prev = null; render(); },
   rPer(k) { U.sheet.r.period = k; U.sheet.prev = null; render(); },
   async rPreview() {
-    const sh = U.sheet; sh.prev = 'loading'; render();
+    const sh = U.sheet;
+    if ((sh.r.fmt || 'png') === 'text') { sh.prev = rptText(rptData(sh.r)); render(); return; }
+    sh.prev = 'loading'; render();
     const files = await rptPngFiles(rptData(sh.r));
     if (U.sheet !== sh) return;
     sh.prev = files.map((f) => URL.createObjectURL(f)); render(); // kept in state so later redraws don't lose it
   },
-  async rSend(kind) {
-    const d = rptData(U.sheet.r), r = U.sheet.r;
-    if (kind === 'text') {
-      const txt = rptText(d), m = r.pl === '*' ? null : comdFor('Pl Comd', r.pl);
-      if (m && m.phone) { window.open(waLink(m.phone, txt), '_blank'); return; }
+  rFmt(k) { U.sheet.r.fmt = k; U.sheet.prev = null; render(); },
+  // how: 'share' opens the phone's own share list (any app); 'save' saves to Downloads. Nothing is sent to anyone automatically.
+  async rSend(how) {
+    const d = rptData(U.sheet.r), fmt = U.sheet.r.fmt || 'png';
+    const saved = (files, what) => { files.forEach(downloadFile); showToast(`${what} saved`, files.length === 1 ? files[0].name + ' (Downloads)' : `${files.length} files in Downloads`, null); render(); };
+    if (fmt === 'text') {
+      const txt = rptText(d);
+      if (how === 'save') { saved([new File([txt], `${FILE_TAG}_${d.tag}.txt`, { type: 'text/plain' })], 'Text'); return; }
       if (navigator.share) { try { await navigator.share({ text: txt }); } catch (e) { /* cancelled */ } return; }
-      window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank'); return;
+      try { await navigator.clipboard.writeText(txt); showToast('Text copied', 'Paste it in any app', null); render(); } catch (e) { saved([new File([txt], `${FILE_TAG}_${d.tag}.txt`, { type: 'text/plain' })], 'Text'); }
+      return;
     }
-    if (kind === 'xlsx') { const f = buildXlsx(d.es, d.tag); downloadFile(f); showToast('Excel saved', f.name + ' (Downloads)', null); render(); return; }
-    const files = kind === 'pdf' ? [await rptPdfFile(d)] : await rptPngFiles(d);
-    const res = await shareFile(files, kind === 'png' ? `${d.short} · ${d.period}` : '');
-    if (res === 'blocked') { files.forEach(downloadFile); showToast(kind === 'pdf' ? 'PDF saved' : `${files.length} picture${files.length > 1 ? 's' : ''} saved`, 'Downloads', null); render(); }
+    const files = fmt === 'xlsx' ? [buildXlsx(d.es, d.tag)] : fmt === 'pdf' ? [await rptPdfFile(d)] : await rptPngFiles(d);
+    const what = fmt === 'xlsx' ? 'Excel' : fmt === 'pdf' ? 'PDF' : files.length > 1 ? 'Pictures' : 'Picture';
+    if (how === 'save') { saved(files, what); return; }
+    const res = await shareFile(files);
+    if (res === 'blocked') {
+      saved(files, what);
+      if (fmt === 'xlsx') uiAlert('This phone does not allow sharing Excel files directly, so it was saved to Downloads. To send it, open the Files app → Downloads, long-press the file and tap Share.', 'Saved to Downloads');
+    }
   },
   openLists(tab) { U.sheet = { type: 'lists', tab: tab || 'obs' }; pushNav(); render(); },
   listTab(t) { U.sheet.tab = t; render(); },
