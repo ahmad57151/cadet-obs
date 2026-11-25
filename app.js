@@ -2,7 +2,7 @@
 /* GC's Obsn - PMA (cadet observations)
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.6.1';
+const APP_VERSION = '0.7.0';
 const APP_NAME = "GC's Obsn - PMA";
 const FILE_TAG = 'GCs_Obsn_PMA';
 const CREDIT = 'Developed by Maj Ahmad Mujtaba, AEC (Cptr Sc)';
@@ -393,6 +393,7 @@ function viewClass() {
       ${shared.length ? `<span class="small">Same cadets as: ${shared.map((y) => esc(className(y))).join(', ')}</span>` : ''}
     </div>
     ${isCur ? '' : `<button class="btn" data-act="useClass" data-arg="${c.id}">Use this class for recording</button>`}
+    <button class="btn" data-act="openPlRpt" data-arg="${c.id}">Platoon report for Pl Comd</button>
     <div class="between"><span class="label">Cadets</span>
       ${U.clsSel ? `<button class="chip sm" style="border:0;color:#23402F" data-act="clsAll">${U.clsSel.size === act.length ? 'Select none' : 'Select all'}</button>`
         : (act.length ? '<button class="chip sm" style="border:0;color:#A1271B" data-act="clsSelect">Remove cadets…</button>' : '')}</div>
@@ -480,6 +481,7 @@ function viewReports() {
     ${r.period === 'term' && S.terms.length > 1 ? `<select id="repTerm" aria-label="Term" style="background:#183026;color:#fff;border:0">${S.terms.slice().reverse().map((t) =>
       `<option value="${t.id}" ${r.term === t.id ? 'selected' : ''}>${esc(t.name)} (from ${esc(fmtD(t.start))})${t === curTerm() ? ' · current' : ''}</option>`).join('')}</select>` : ''}</header>
     <main class="body">
+    <button class="btn pri" data-act="openPlRpt" data-arg="${r.cls}">Platoon report for Pl Comd</button>
     <div class="grid3 tiles"><div class="t"><b>${es.length}</b><span>Observations</span></div><div class="t"><b>${Object.keys(byCadet).length}</b><span>Cadets</span></div>
     <div class="t"><b style="color:${pend ? '#7A4300' : '#1C1C1A'}">${pend}</b><span>Pending</span></div></div>
     ${base.length ? `<span class="label">By observation · tap to filter</span>
@@ -530,6 +532,185 @@ function buildXlsx() {
   return new File([data], name, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
+/* ---------- platoon report for Pl Comd (picture / PDF / text) ----------
+   One A4 page layout is drawn on a canvas; the picture is that page as PNG,
+   the PDF embeds the same pages. Only GCs with observations; no punishments. */
+const fmtDM = (ts) => new Date(ts).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+function rptPls(clsId) {
+  const cl = clsId === 'all' ? liveClasses() : S.classes.filter((c) => c.id === clsId);
+  const set = new Set(); cl.forEach((c) => classCadets(c).forEach((x) => set.add(x.pl)));
+  return [...set].sort();
+}
+function rptDefaults(clsId) {
+  const c = S.classes.find((y) => y.id === clsId) || curClass() || liveClasses()[0];
+  const id = c ? c.id : 'all', t = today();
+  // start on the platoon with the most observations this term
+  const cnt = {}; S.entries.forEach((e) => { const x = S.cadets[e.gc]; if (x && e.ts >= termTs() && (id === 'all' || e.classId === id)) cnt[x.pl] = (cnt[x.pl] || 0) + 1; });
+  const pls = rptPls(id).sort((a, b) => (cnt[b] || 0) - (cnt[a] || 0) || a.localeCompare(b));
+  return { cls: id, pl: pls[0] || '', period: 'term', month: t.slice(0, 7), from: t.slice(0, 8) + '01', to: t };
+}
+function rptRange(r) {
+  if (r.period === 'month') { const [y, m] = r.month.split('-').map(Number); return [new Date(y, m - 1, 1).getTime(), new Date(y, m, 1).getTime()]; }
+  if (r.period === 'range') return [new Date(r.from + 'T00:00:00').getTime(), new Date(r.to + 'T00:00:00').getTime() + 86400000];
+  return [termTs(), Infinity];
+}
+function rptPeriodLabel(r) {
+  if (r.period === 'month') { const [y, m] = r.month.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }); }
+  if (r.period === 'range') return `${fmtD(r.from)} – ${fmtD(r.to)}`;
+  return `${curTerm().name} (from ${fmtD(curTerm().start)})`;
+}
+function rptData(r) {
+  const [from, to] = rptRange(r);
+  const es = S.entries.filter((e) => e.ts >= from && e.ts < to && (r.cls === 'all' || e.classId === r.cls) && S.cadets[e.gc] && S.cadets[e.gc].pl === r.pl);
+  const sum = {}, per = {};
+  es.forEach((e) => { (sum[e.obs] = sum[e.obs] || { n: 0, g: new Set() }).n++; sum[e.obs].g.add(e.gc); (per[e.gc] = per[e.gc] || []).push(e); });
+  const summary = Object.entries(sum).map(([o, v]) => ({ o, n: v.n, g: v.g.size })).sort((a, b) => b.n - a.n || a.o.localeCompare(b.o));
+  const rows = Object.entries(per).map(([gc, l]) => { const x = S.cadets[gc];
+    return { gc: +gc, name: x.name + (x.tag ? ` (${x.tag})` : ''), items: l.sort((a, b) => a.ts - b.ts).map((e) => ({ d: fmtDM(e.ts), o: e.obs })) }; })
+    .sort((a, b) => b.items.length - a.items.length || a.gc - b.gc);
+  const c = S.classes.find((y) => y.id === r.cls);
+  const cname = c ? `${c.subject} ${c.course} Gp ${c.gp}` : 'All classes';
+  return { es, summary, rows, short: `${r.pl} · ${cname}`, title: `OBSERVATIONS – ${r.pl} · ${cname}`.toUpperCase(), period: rptPeriodLabel(r),
+    tag: `${r.pl}_${c ? c.subject + '_' + c.course : 'All'}_${r.period === 'month' ? r.month : r.period === 'range' ? r.from + '_to_' + r.to : curTerm().name}`.replace(/[^A-Za-z0-9-]+/g, '_') };
+}
+
+// ---- A4 page layout (units: PDF points, 595 x 842) ----
+const PW = 595, PH = 842, ML = 46, CW = PW - 92, MT = 48, BOTTOM = PH - 56, RPX = 1240, RSC = RPX / PW;
+const RFONT = 'Arial, Helvetica, sans-serif';
+function rptLayout(d) {
+  const m = document.createElement('canvas').getContext('2d');
+  const tw = (t, f) => { m.font = f; return m.measureText(t).width; };
+  const wrap = (t, f, w) => { const out = []; let cur = '';
+    String(t).split(' ').forEach((wd) => { const tr = cur ? cur + ' ' + wd : wd; if (!cur || tw(tr, f) <= w) cur = tr; else { out.push(cur); cur = wd; } });
+    if (cur) out.push(cur); return out.length ? out : [''];
+  };
+  const F = { t: `bold 15px ${RFONT}`, s: `11px ${RFONT}`, h: `bold 11px ${RFONT}`, th: `bold 10.5px ${RFONT}`, td: `10.5px ${RFONT}`, tdb: `bold 10.5px ${RFONT}`, f: `9px ${RFONT}` };
+  const LH = 14, PAD = 4, pages = []; let ops, y;
+  const newPage = () => { ops = []; pages.push(ops); y = MT; };
+  newPage();
+  wrap(d.title, F.t, CW).forEach((l) => { ops.push({ k: 'text', t: l, f: F.t, x: ML, y: y + 13, u: true }); y += 19; });
+  wrap(`Period: ${d.period} · GCs with observations: ${d.rows.length} · Total observations: ${d.es.length}`, F.s, CW).forEach((l) => { ops.push({ k: 'text', t: l, f: F.s, x: ML, y: y + 10 }); y += 14; });
+  y += 12;
+  const table = (heading, cols, rows) => {
+    const grid = (yy, h) => { ops.push({ k: 'box', x: ML, y: yy, w: CW, h }); let x = ML; cols.slice(0, -1).forEach((c) => { x += c.w; ops.push({ k: 'line', x1: x, y1: yy, x2: x, y2: yy + h }); }); };
+    const head = (contd) => {
+      if (y + 18 + LH * 2 + PAD * 4 > BOTTOM) newPage();
+      ops.push({ k: 'text', t: heading + (contd ? ' (contd)' : ''), f: F.h, x: ML, y: y + 10 }); y += 18;
+      const h = LH + PAD * 2; let x = ML;
+      ops.push({ k: 'rect', x: ML, y, w: CW, h, fill: '#E8E8E8' });
+      cols.forEach((c) => { ops.push({ k: 'text', t: c.t, f: F.th, x: c.a === 'c' ? x + c.w / 2 : x + 6, y: y + PAD + LH - 4, a: c.a }); x += c.w; });
+      grid(y, h); y += h;
+    };
+    head(false);
+    rows.forEach((r) => {
+      const n = Math.max(...r.cells.map((c) => c.length)); let start = 0;
+      while (start < n) {
+        const avail = Math.floor((BOTTOM - y - PAD * 2) / LH);
+        if (avail < 1) { newPage(); head(true); continue; }
+        const take = Math.min(avail, n - start), h = take * LH + PAD * 2; let x = ML;
+        cols.forEach((c, ci) => {
+          let lines = r.cells[ci].slice(start, start + take);
+          if (start > 0 && ci < cols.length - 1) lines = r.contd ? (r.contd[ci] || []) : [];
+          lines.forEach((ln, li) => ops.push({ k: 'text', t: ln, f: r.bold && r.bold.includes(ci) ? F.tdb : F.td, x: c.a === 'c' ? x + c.w / 2 : x + 6, y: y + PAD + LH * (li + 1) - 4, a: c.a }));
+          x += c.w;
+        });
+        grid(y, h); y += h; start += take;
+        if (start < n) { newPage(); head(true); }
+      }
+    });
+    y += 20;
+  };
+  const c1 = [{ t: 'Ser', w: 34 }, { t: 'Observation', w: CW - 184 }, { t: 'Obsns', w: 80, a: 'c' }, { t: 'GCs', w: 70, a: 'c' }];
+  table('1.  Summary by Observation', c1, d.summary.map((s, i) => ({ cells: [[String(i + 1)], wrap(s.o, F.td, c1[1].w - 12), [String(s.n)], [String(s.g)]] })));
+  const c2 = [{ t: 'Ser', w: 34 }, { t: 'GC No', w: 52 }, { t: 'Name', w: CW - 360 }, { t: 'Total', w: 44, a: 'c' }, { t: 'Date – Observation', w: 230 }];
+  table('2.  Observations by GC', c2, d.rows.map((r, i) => ({
+    bold: [3], contd: [[], [String(r.gc)], ['(contd)'], []],
+    cells: [[String(i + 1)], [String(r.gc)], wrap(r.name, F.td, c2[2].w - 12), [String(r.items.length)], r.items.flatMap((it) => wrap(`${it.d} – ${it.o}`, F.td, c2[4].w - 12))]
+  })));
+  const N = pages.length, gen = `${APP_NAME} · generated ${fmtD(today())}`;
+  pages.forEach((p, i) => { p.push({ k: 'text', t: gen, f: F.f, x: ML, y: PH - 30, color: '#555' }); p.push({ k: 'text', t: `Page ${i + 1} of ${N}`, f: F.f, x: PW - ML, y: PH - 30, a: 'r', color: '#555' }); });
+  return pages;
+}
+function rptCanvas(ops) {
+  const c = document.createElement('canvas'); c.width = RPX; c.height = Math.round(PH * RSC);
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.scale(RSC, RSC);
+  g.lineWidth = 0.8; g.strokeStyle = '#333';
+  ops.forEach((o) => {
+    if (o.k === 'rect') { g.fillStyle = o.fill; g.fillRect(o.x, o.y, o.w, o.h); }
+    else if (o.k === 'box') g.strokeRect(o.x, o.y, o.w, o.h);
+    else if (o.k === 'line') { g.beginPath(); g.moveTo(o.x1, o.y1); g.lineTo(o.x2, o.y2); g.stroke(); }
+    else if (o.k === 'text') {
+      g.font = o.f; g.fillStyle = o.color || '#111'; g.textAlign = o.a === 'c' ? 'center' : o.a === 'r' ? 'right' : 'left'; g.fillText(o.t, o.x, o.y);
+      if (o.u) { const w = g.measureText(o.t).width; g.fillRect(o.x, o.y + 2, w, 0.9); }
+    }
+  });
+  return c;
+}
+const canvasBlob = (c, type, q) => new Promise((res) => c.toBlob(res, type, q));
+async function rptPngFiles(d) {
+  const pages = rptLayout(d), out = [];
+  for (let i = 0; i < pages.length; i++) {
+    const b = await canvasBlob(rptCanvas(pages[i]), 'image/png');
+    out.push(new File([b], `${FILE_TAG}_${d.tag}${pages.length > 1 ? `_p${i + 1}` : ''}.png`, { type: 'image/png' }));
+  }
+  return out;
+}
+// Minimal PDF writer: one JPEG image per A4 page.
+async function rptPdfFile(d) {
+  const pages = rptLayout(d), imgs = [];
+  for (const p of pages) { const c = rptCanvas(p); imgs.push({ b: new Uint8Array(await (await canvasBlob(c, 'image/jpeg', 0.92)).arrayBuffer()), w: c.width, h: c.height }); }
+  const enc = new TextEncoder(), parts = [], offs = []; let len = 0;
+  const push = (x) => { const b = typeof x === 'string' ? enc.encode(x) : x; parts.push(b); len += b.length; };
+  const obj = (n, body) => { offs[n] = len; push(`${n} 0 obj\n`); body(); push('\nendobj\n'); };
+  push('%PDF-1.4\n');
+  const N = imgs.length;
+  obj(1, () => push('<< /Type /Catalog /Pages 2 0 R >>'));
+  obj(2, () => push(`<< /Type /Pages /Kids [${imgs.map((_, i) => `${3 + i * 3} 0 R`).join(' ')}] /Count ${N} >>`));
+  imgs.forEach((im, i) => {
+    const p = 3 + i * 3, content = `q ${PW} 0 0 ${PH} 0 0 cm /Im0 Do Q`;
+    obj(p, () => push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PW} ${PH}] /Resources << /XObject << /Im0 ${p + 1} 0 R >> >> /Contents ${p + 2} 0 R >>`));
+    obj(p + 1, () => { push(`<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.b.length} >>\nstream\n`); push(im.b); push('\nendstream'); });
+    obj(p + 2, () => push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`));
+  });
+  const total = 3 + N * 3, xref = len;
+  push(`xref\n0 ${total}\n0000000000 65535 f \n`);
+  for (let n = 1; n < total; n++) push(String(offs[n]).padStart(10, '0') + ' 00000 n \n');
+  push(`trailer\n<< /Size ${total} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`);
+  return new File([new Blob(parts, { type: 'application/pdf' })], `${FILE_TAG}_${d.tag}.pdf`, { type: 'application/pdf' });
+}
+function rptText(d) {
+  const L = [`*${d.short}*`, `Obsns ${d.period} · ${d.rows.length} GCs · ${d.es.length} obsns`, '', '*Summary*'];
+  d.summary.forEach((s) => L.push(`${s.o} – ${s.n}`));
+  L.push('', '*By GC*');
+  d.rows.forEach((r) => { L.push(`${r.gc} ${r.name} – ${r.items.length}`); r.items.forEach((it) => L.push(`• ${it.d} ${it.o}`)); });
+  return L.join('\n');
+}
+
+function plRptSheet() {
+  const r = U.sheet.r, pls = rptPls(r.cls);
+  if (!pls.includes(r.pl)) r.pl = pls[0] || '';
+  const d = r.pl ? rptData(r) : null, ok = d && d.es.length;
+  const m = r.pl ? comdFor('Pl Comd', r.pl) : null;
+  const seg = (k, l) => `<button class="${r.period === k ? 'on' : ''}" style="${r.period === k ? '' : 'color:#3F3F3A'}" data-act="rPer" data-arg="${k}">${l}</button>`;
+  return `<h2>Platoon report</h2>
+    <label class="field"><span>Class</span><select id="rClass">${liveClasses().map((c) => `<option value="${c.id}" ${r.cls === c.id ? 'selected' : ''}>${esc(className(c))}</option>`).join('')}
+      <option value="all" ${r.cls === 'all' ? 'selected' : ''}>All my classes</option></select></label>
+    <div class="field"><span>Platoon</span><div class="chips">${pls.length ? pls.map((p) => `<button class="chip ${r.pl === p ? 'on' : ''}" data-act="rPl" data-arg="${esc(p)}">${esc(p)}</button>`).join('') : '<span class="small">No cadets in this class.</span>'}</div></div>
+    <div class="field"><span>Period</span><div class="seg" style="background:#EFEDE5">${seg('term', 'Term')}${seg('month', 'Month')}${seg('range', 'Date range')}</div>
+      ${r.period === 'month' ? `<input type="month" id="rMonth" value="${esc(r.month)}">` : ''}
+      ${r.period === 'range' ? `<div class="grid2"><label class="field"><span>From</span><input type="date" id="rFrom" value="${esc(r.from)}"></label><label class="field"><span>To</span><input type="date" id="rTo" value="${esc(r.to)}"></label></div>` : ''}
+      ${r.period === 'term' ? `<span class="small">${esc(curTerm().name)}, from ${esc(fmtD(curTerm().start))}</span>` : ''}</div>
+    <div class="${ok ? 'hint ok' : 'warn'}" style="flex-direction:column;align-items:flex-start;gap:2px"><b>${ok ? `${d.rows.length} GC${d.rows.length > 1 ? 's' : ''} with observations · ${d.es.length} observation${d.es.length > 1 ? 's' : ''}` : 'No observations for this selection'}</b>
+      <span class="small" style="color:inherit">Only GCs with observations are included · no punishments</span></div>
+    <span class="label">Send as</span>
+    <button class="btn pri" data-act="rSend" data-arg="png" ${ok ? '' : 'disabled'}>Picture — share on WhatsApp</button>
+    <div class="grid2"><button class="btn" data-act="rSend" data-arg="pdf" ${ok ? '' : 'disabled'}>PDF (A4)</button><button class="btn" data-act="rSend" data-arg="text" ${ok ? '' : 'disabled'}>Text to Pl Comd</button></div>
+    <span class="small" style="text-align:center">${m && m.phone ? `Text opens WhatsApp with ${esc([m.rank, m.name].filter(Boolean).join(' '))} (Pl Comd ${esc(r.pl)})` : `No phone saved for Pl Comd ${esc(r.pl || '')} — WhatsApp will ask you to pick the contact`}</span>
+    <button class="btn sm" data-act="rPreview" ${ok ? '' : 'disabled'}>Preview</button>
+    <div id="rPrev" class="list"></div>
+    <button class="btn" data-act="closeSheet">Close</button>`;
+}
+
 /* ---------- files out ---------- */
 function canShareFiles() {
   try { return !!(navigator.canShare && navigator.canShare({ files: [new File(['x'], 'x.txt', { type: 'text/plain' })] })); } catch (e) { return false; }
@@ -541,9 +722,11 @@ function downloadFile(file) {
 }
 // Returns 'shared', 'cancelled' or 'blocked'. Android Chrome only shares some file
 // types (text, PDF, images…); others are refused with “Permission denied”.
-async function shareFile(file) {
-  try { if (navigator.canShare && !navigator.canShare({ files: [file] })) return 'blocked'; } catch (e) { return 'blocked'; }
-  try { await navigator.share({ files: [file], title: file.name }); return 'shared'; }
+async function shareFile(file, text) {
+  const files = Array.isArray(file) ? file : [file];
+  if (!navigator.share) return 'blocked';
+  try { if (navigator.canShare && !navigator.canShare({ files })) return 'blocked'; } catch (e) { return 'blocked'; }
+  try { await navigator.share(Object.assign({ files, title: files[0].name }, text ? { text } : {})); return 'shared'; }
   catch (e) { return e.name === 'AbortError' ? 'cancelled' : 'blocked'; }
 }
 
@@ -666,6 +849,7 @@ function sheetHtml() {
   else if (s.type === 'archived') inner = archivedSheet();
   else if (s.type === 'lists') inner = listsSheet();
   else if (s.type === 'item') inner = itemSheet();
+  else if (s.type === 'plRpt') inner = plRptSheet();
   return `<div class="scrim" data-act="scrim"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${inner}</div></div>`;
 }
 
@@ -1170,6 +1354,26 @@ const A = {
     installEvt = null; render();
     if (r && r.outcome === 'dismissed') showToast('Not installed', 'Settings → Install, any time', null);
   },
+  openPlRpt(id) { U.sheet = { type: 'plRpt', r: rptDefaults(id) }; pushNav(); render(); },
+  rPl(p) { U.sheet.r.pl = p; render(); },
+  rPer(k) { U.sheet.r.period = k; render(); },
+  async rPreview() {
+    const d = rptData(U.sheet.r), box = $('#rPrev'); box.innerHTML = '<span class="small">Preparing…</span>';
+    const files = await rptPngFiles(d);
+    box.innerHTML = files.map((f, i) => `<img src="${URL.createObjectURL(f)}" alt="Report page ${i + 1}" style="width:100%;border:1px solid #DAD8CF;border-radius:8px">`).join('');
+  },
+  async rSend(kind) {
+    const d = rptData(U.sheet.r), r = U.sheet.r;
+    if (kind === 'text') {
+      const txt = rptText(d), m = comdFor('Pl Comd', r.pl);
+      if (m && m.phone) { window.open(waLink(m.phone, txt), '_blank'); return; }
+      if (navigator.share) { try { await navigator.share({ text: txt }); } catch (e) { /* cancelled */ } return; }
+      window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank'); return;
+    }
+    const files = kind === 'pdf' ? [await rptPdfFile(d)] : await rptPngFiles(d);
+    const res = await shareFile(files, kind === 'png' ? `${d.short} · ${d.period}` : '');
+    if (res === 'blocked') { files.forEach(downloadFile); showToast(kind === 'pdf' ? 'PDF saved' : `${files.length} picture${files.length > 1 ? 's' : ''} saved`, 'Downloads', null); render(); }
+  },
   openLists(tab) { U.sheet = { type: 'lists', tab: tab || 'obs' }; pushNav(); render(); },
   listTab(t) { U.sheet.tab = t; render(); },
   editItem(key) { U.sheet = { type: 'item', kind: U.sheet.tab, key, back: { type: 'lists', tab: U.sheet.tab } }; render(); const i = $('#iName'); if (i && key === 'new') i.focus(); },
@@ -1350,6 +1554,13 @@ document.addEventListener('change', async (ev) => {
   }
   else if (t.id === 'ntStart' && t.value) { $('#ntNameShow').textContent = seasonOf(t.value).name; }
   else if (t.id === 'histTerm') { U.histTerm = t.checked; render(); }
+  else if (t.id === 'rClass') { U.sheet.r.cls = t.value; render(); }
+  else if (t.id === 'rMonth' && t.value) { U.sheet.r.month = t.value; render(); }
+  else if ((t.id === 'rFrom' || t.id === 'rTo') && t.value) {
+    U.sheet.r[t.id === 'rFrom' ? 'from' : 'to'] = t.value;
+    if (U.sheet.r.from > U.sheet.r.to) { uiAlert('“From” must be before “To”.'); }
+    render();
+  }
   else if (t.id === 'repTerm') { U.rep.term = t.value; render(); }
   else if (t.id === 'fileInput' && t.files[0]) handleFile(t.files[0]);
   else if (t.id === 'repCls') { U.rep.cls = t.value; render(); }
