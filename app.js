@@ -2,7 +2,7 @@
 /* GC's Obsn - PMA (cadet observations)
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.7.0';
+const APP_VERSION = '0.7.1';
 const APP_NAME = "GC's Obsn - PMA";
 const FILE_TAG = 'GCs_Obsn_PMA';
 const CREDIT = 'Developed by Maj Ahmad Mujtaba, AEC (Cptr Sc)';
@@ -393,7 +393,7 @@ function viewClass() {
       ${shared.length ? `<span class="small">Same cadets as: ${shared.map((y) => esc(className(y))).join(', ')}</span>` : ''}
     </div>
     ${isCur ? '' : `<button class="btn" data-act="useClass" data-arg="${c.id}">Use this class for recording</button>`}
-    <button class="btn" data-act="openPlRpt" data-arg="${c.id}">Platoon report for Pl Comd</button>
+    <button class="btn" data-act="openPlRpt" data-arg="${c.id}">Report for Pl Comd / Excel</button>
     <div class="between"><span class="label">Cadets</span>
       ${U.clsSel ? `<button class="chip sm" style="border:0;color:#23402F" data-act="clsAll">${U.clsSel.size === act.length ? 'Select none' : 'Select all'}</button>`
         : (act.length ? '<button class="chip sm" style="border:0;color:#A1271B" data-act="clsSelect">Remove cadets…</button>' : '')}</div>
@@ -481,7 +481,7 @@ function viewReports() {
     ${r.period === 'term' && S.terms.length > 1 ? `<select id="repTerm" aria-label="Term" style="background:#183026;color:#fff;border:0">${S.terms.slice().reverse().map((t) =>
       `<option value="${t.id}" ${r.term === t.id ? 'selected' : ''}>${esc(t.name)} (from ${esc(fmtD(t.start))})${t === curTerm() ? ' · current' : ''}</option>`).join('')}</select>` : ''}</header>
     <main class="body">
-    <button class="btn pri" data-act="openPlRpt" data-arg="${r.cls}">Platoon report for Pl Comd</button>
+    <button class="btn pri" data-act="openPlRpt" data-arg="${r.cls}">Report for Pl Comd / Excel</button>
     <div class="grid3 tiles"><div class="t"><b>${es.length}</b><span>Observations</span></div><div class="t"><b>${Object.keys(byCadet).length}</b><span>Cadets</span></div>
     <div class="t"><b style="color:${pend ? '#7A4300' : '#1C1C1A'}">${pend}</b><span>Pending</span></div></div>
     ${base.length ? `<span class="label">By observation · tap to filter</span>
@@ -495,14 +495,12 @@ function viewReports() {
       <span class="grow"><span class="nm">${esc(x.name)}</span><span class="sub">GC ${gc} · ${esc(x.pl)}</span></span><span class="pill ${n >= 4 ? 'p-red' : n >= 2 ? 'p-amb' : 'p-grey'}">${n}${filt.length ? '×' : ' obs'}</span></button>`; }).join('') || '<div class="empty"><span>No cadets for this filter.</span></div>'}</div>
     ${ranked.length > 10 ? `<button class="btn sm" data-act="repAllTop">${r.allTop ? 'Show top 10' : `Show all ${ranked.length} cadets`}</button>` : ''}`
     : '<div class="empty"><span>No observations in this period.</span></div>'}
-    ${filt.length ? '<span class="small">Excel export includes only the filtered entries.</span>' : ''}
-    <div class="grid2"><button class="btn pri" data-act="exportXlsx" data-arg="save" ${es.length ? '' : 'disabled'}>Export Excel</button>
-    <button class="btn" data-act="exportXlsx" data-arg="share" ${es.length && navigator.share ? '' : 'disabled'}>Share Excel</button></div>
+
     </main>`;
 }
 
-function buildXlsx() {
-  const r = U.rep, es = repFiltered().sort((a, b) => a.ts - b.ts);
+function buildXlsx(entries, fileTag) {
+  const es = entries.slice().sort((a, b) => a.ts - b.ts);
   const cls = (id) => S.classes.find((c) => c.id === id);
   const rows = es.map((e) => {
     const x = S.cadets[e.gc] || {}, d = new Date(e.ts), c = cls(e.classId);
@@ -523,11 +521,7 @@ function buildXlsx() {
   const ws2 = XLSX.utils.json_to_sheet(summary); ws2['!cols'] = [{ wch: 8 }, { wch: 28 }, { wch: 8 }, { wch: 9 }, { wch: 4 }, { wch: 6 }].concat(obsList.map(() => ({ wch: 14 })));
   XLSX.utils.book_append_sheet(wb, ws1, 'Observations');
   XLSX.utils.book_append_sheet(wb, ws2, 'By cadet');
-  const c = r.cls === 'all' ? null : cls(r.cls);
-  const ftag = [r.obs, r.pun ? punLabel(r.pun === 'none' ? null : r.pun) : null].filter(Boolean).join('_');
-  const tag = ((c ? `${c.subject}_${c.course}_Gp${c.gp}` : 'AllClasses') + (ftag ? '_' + ftag : '')).replace(/[^A-Za-z0-9]+/g, '_');
-  const perName = r.period === 'term' ? (S.terms.find((t) => t.id === r.term) || curTerm()).name : r.period;
-  const name = `${FILE_TAG}_${tag}_${perName.replace(/[^A-Za-z0-9]+/g, '_')}_${today()}.xlsx`;
+  const name = `${FILE_TAG}_${fileTag}_${today()}.xlsx`;
   const data = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
   return new File([data], name, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
@@ -561,17 +555,19 @@ function rptPeriodLabel(r) {
 }
 function rptData(r) {
   const [from, to] = rptRange(r);
-  const es = S.entries.filter((e) => e.ts >= from && e.ts < to && (r.cls === 'all' || e.classId === r.cls) && S.cadets[e.gc] && S.cadets[e.gc].pl === r.pl);
+  const allPl = r.pl === '*';
+  const es = S.entries.filter((e) => e.ts >= from && e.ts < to && (r.cls === 'all' || e.classId === r.cls) && S.cadets[e.gc] && (allPl || S.cadets[e.gc].pl === r.pl));
   const sum = {}, per = {};
   es.forEach((e) => { (sum[e.obs] = sum[e.obs] || { n: 0, g: new Set() }).n++; sum[e.obs].g.add(e.gc); (per[e.gc] = per[e.gc] || []).push(e); });
   const summary = Object.entries(sum).map(([o, v]) => ({ o, n: v.n, g: v.g.size })).sort((a, b) => b.n - a.n || a.o.localeCompare(b.o));
   const rows = Object.entries(per).map(([gc, l]) => { const x = S.cadets[gc];
-    return { gc: +gc, name: x.name + (x.tag ? ` (${x.tag})` : ''), items: l.sort((a, b) => a.ts - b.ts).map((e) => ({ d: fmtDM(e.ts), o: e.obs })) }; })
+    return { gc: +gc, name: x.name + (x.tag ? ` (${x.tag})` : '') + (allPl ? ` · ${x.pl}` : ''), items: l.sort((a, b) => a.ts - b.ts).map((e) => ({ d: fmtDM(e.ts), o: e.obs })) }; })
     .sort((a, b) => b.items.length - a.items.length || a.gc - b.gc);
   const c = S.classes.find((y) => y.id === r.cls);
   const cname = c ? `${c.subject} ${c.course} Gp ${c.gp}` : 'All classes';
-  return { es, summary, rows, short: `${r.pl} · ${cname}`, title: `OBSERVATIONS – ${r.pl} · ${cname}`.toUpperCase(), period: rptPeriodLabel(r),
-    tag: `${r.pl}_${c ? c.subject + '_' + c.course : 'All'}_${r.period === 'month' ? r.month : r.period === 'range' ? r.from + '_to_' + r.to : curTerm().name}`.replace(/[^A-Za-z0-9-]+/g, '_') };
+  const plName = allPl ? 'All platoons' : r.pl;
+  return { es, summary, rows, plName, cname, short: `${plName} · ${cname}`, title: `OBSERVATIONS – ${plName} · ${cname}`.toUpperCase(), period: rptPeriodLabel(r),
+    tag: `${allPl ? 'AllPl' : r.pl}_${c ? c.subject + '_' + c.course + '_Gp' + c.gp : 'AllClasses'}_${r.period === 'month' ? r.month : r.period === 'range' ? r.from + '_to_' + r.to : curTerm().name}`.replace(/[^A-Za-z0-9-]+/g, '_') };
 }
 
 // ---- A4 page layout (units: PDF points, 595 x 842) ----
@@ -679,23 +675,36 @@ async function rptPdfFile(d) {
   return new File([new Blob(parts, { type: 'application/pdf' })], `${FILE_TAG}_${d.tag}.pdf`, { type: 'application/pdf' });
 }
 function rptText(d) {
-  const L = [`*${d.short}*`, `Obsns ${d.period} · ${d.rows.length} GCs · ${d.es.length} obsns`, '', '*Summary*'];
-  d.summary.forEach((s) => L.push(`${s.o} – ${s.n}`));
-  L.push('', '*By GC*');
-  d.rows.forEach((r) => { L.push(`${r.gc} ${r.name} – ${r.items.length}`); r.items.forEach((it) => L.push(`• ${it.d} ${it.o}`)); });
+  const L = [];
+  L.push(`*OBSERVATIONS – ${d.plName}*`, d.cname, `Period: ${d.period}`, `Total: *${d.es.length} obsns* · *${d.rows.length} GCs*`);
+  L.push('', '──────────────', '*SUMMARY*', '');
+  d.summary.forEach((s) => L.push(`▪ ${s.o} – *${s.n}*`));
+  L.push('', '──────────────', '*BY GC*');
+  d.rows.forEach((r, i) => {
+    L.push('', `*${i + 1}) ${r.gc} · ${r.name}* – ${r.items.length}`);
+    const g = {}; r.items.forEach((it) => { (g[it.o] = g[it.o] || []).push(it.d); });
+    Object.entries(g).sort((a, b) => b[1].length - a[1].length).forEach(([o, ds]) => {
+      // same-day repeats as "11 Nov ×3"
+      const c = []; ds.forEach((x) => { const last = c[c.length - 1]; if (last && last.d === x) last.n++; else c.push({ d: x, n: 1 }); });
+      L.push(`     ◦ ${o} (${ds.length}): ${c.map((x) => x.n > 1 ? `${x.d} ×${x.n}` : x.d).join(', ')}`);
+    });
+  });
+  L.push('', `_${APP_NAME}_`);
   return L.join('\n');
 }
 
 function plRptSheet() {
   const r = U.sheet.r, pls = rptPls(r.cls);
-  if (!pls.includes(r.pl)) r.pl = pls[0] || '';
+  if (r.pl !== '*' && !pls.includes(r.pl)) r.pl = pls[0] || '';
+  const allPl = r.pl === '*';
   const d = r.pl ? rptData(r) : null, ok = d && d.es.length;
-  const m = r.pl ? comdFor('Pl Comd', r.pl) : null;
+  const m = r.pl && !allPl ? comdFor('Pl Comd', r.pl) : null;
   const seg = (k, l) => `<button class="${r.period === k ? 'on' : ''}" style="${r.period === k ? '' : 'color:#3F3F3A'}" data-act="rPer" data-arg="${k}">${l}</button>`;
   return `<h2>Platoon report</h2>
     <label class="field"><span>Class</span><select id="rClass">${liveClasses().map((c) => `<option value="${c.id}" ${r.cls === c.id ? 'selected' : ''}>${esc(className(c))}</option>`).join('')}
       <option value="all" ${r.cls === 'all' ? 'selected' : ''}>All my classes</option></select></label>
-    <div class="field"><span>Platoon</span><div class="chips">${pls.length ? pls.map((p) => `<button class="chip ${r.pl === p ? 'on' : ''}" data-act="rPl" data-arg="${esc(p)}">${esc(p)}</button>`).join('') : '<span class="small">No cadets in this class.</span>'}</div></div>
+    <div class="field"><span>Platoon</span><div class="chips">${pls.length ? pls.map((p) => `<button class="chip ${r.pl === p ? 'on' : ''}" data-act="rPl" data-arg="${esc(p)}">${esc(p)}</button>`).join('')
+      + (pls.length > 1 ? `<button class="chip ${allPl ? 'on' : ''}" data-act="rPl" data-arg="*">All platoons</button>` : '') : '<span class="small">No cadets in this class.</span>'}</div></div>
     <div class="field"><span>Period</span><div class="seg" style="background:#EFEDE5">${seg('term', 'Term')}${seg('month', 'Month')}${seg('range', 'Date range')}</div>
       ${r.period === 'month' ? `<input type="month" id="rMonth" value="${esc(r.month)}">` : ''}
       ${r.period === 'range' ? `<div class="grid2"><label class="field"><span>From</span><input type="date" id="rFrom" value="${esc(r.from)}"></label><label class="field"><span>To</span><input type="date" id="rTo" value="${esc(r.to)}"></label></div>` : ''}
@@ -704,10 +713,12 @@ function plRptSheet() {
       <span class="small" style="color:inherit">Only GCs with observations are included · no punishments</span></div>
     <span class="label">Send as</span>
     <button class="btn pri" data-act="rSend" data-arg="png" ${ok ? '' : 'disabled'}>Picture — share on WhatsApp</button>
-    <div class="grid2"><button class="btn" data-act="rSend" data-arg="pdf" ${ok ? '' : 'disabled'}>PDF (A4)</button><button class="btn" data-act="rSend" data-arg="text" ${ok ? '' : 'disabled'}>Text to Pl Comd</button></div>
-    <span class="small" style="text-align:center">${m && m.phone ? `Text opens WhatsApp with ${esc([m.rank, m.name].filter(Boolean).join(' '))} (Pl Comd ${esc(r.pl)})` : `No phone saved for Pl Comd ${esc(r.pl || '')} — WhatsApp will ask you to pick the contact`}</span>
+    <div class="grid2"><button class="btn" data-act="rSend" data-arg="pdf" ${ok ? '' : 'disabled'}>PDF (A4)</button><button class="btn" data-act="rSend" data-arg="text" ${ok ? '' : 'disabled'}>${allPl ? 'Text (WhatsApp)' : 'Text to Pl Comd'}</button></div>
+    <span class="small" style="text-align:center">${allPl ? 'Text: WhatsApp will ask you to pick the contact' : m && m.phone ? `Text opens WhatsApp with ${esc([m.rank, m.name].filter(Boolean).join(' '))} (Pl Comd ${esc(r.pl)})` : `No phone saved for Pl Comd ${esc(r.pl || '')} — WhatsApp will ask you to pick the contact`}</span>
+    <button class="btn sm" data-act="rSend" data-arg="xlsx" ${ok ? '' : 'disabled'}>Excel — full details for your records</button>
+    <span class="small" style="text-align:center;margin-top:-6px">Excel also has punishments, status and notes. Saved to Downloads.</span>
     <button class="btn sm" data-act="rPreview" ${ok ? '' : 'disabled'}>Preview</button>
-    <div id="rPrev" class="list"></div>
+    <div id="rPrev" class="list">${U.sheet.prev === 'loading' ? '<span class="small">Preparing…</span>' : (U.sheet.prev || []).map((u, i) => `<img src="${u}" alt="Report page ${i + 1}" style="width:100%;border:1px solid #DAD8CF;border-radius:8px">`).join('')}</div>
     <button class="btn" data-act="closeSheet">Close</button>`;
 }
 
@@ -1255,8 +1266,8 @@ const A = {
     if (U.view !== 'class') U.classFrom = U.view;
     U.view = 'class'; U.classId = id; U.cq = ''; U.clsSel = null; render(); window.scrollTo(0, 0);
   },
-  async useClass(id) { S.settings.currentClass = id; await save(); showToast('Recording in', className(S.classes.find((c) => c.id === id)), null); render(); },
-  async pickClass(id) { S.settings.currentClass = id; U.pl = 'All'; U.batchSel.clear(); await save(); U.sheet = null; silentBack(); render(); },
+  async useClass(id) { S.settings.currentClass = id; if (U.rep) U.rep.cls = id; await save(); showToast('Recording in', className(S.classes.find((c) => c.id === id)), null); render(); },
+  async pickClass(id) { S.settings.currentClass = id; if (U.rep) { U.rep.cls = id; U.rep.obs = null; U.rep.pun = null; } U.pl = 'All'; U.batchSel.clear(); await save(); U.sheet = null; silentBack(); render(); },
   async addClass() {
     const f = U.sheet.form;
     f.subject = $('#fSubject').value.trim(); f.course = normCourse($('#fCourse').value); f.gp = $('#fGp').value;
@@ -1264,7 +1275,7 @@ const A = {
     if (!f.course) { uiAlert('Enter the course, e.g. 158 L/C'); return; }
     if (liveClasses().some((c) => c.subject.toLowerCase() === f.subject.toLowerCase() && c.course === f.course && c.gp === f.gp)) { uiAlert('This class already exists.'); return; }
     const c = { id: uid(), subject: f.subject, course: f.course, gp: f.gp, termId: curTerm().id };
-    S.classes.push(c); S.settings.currentClass = c.id;
+    S.classes.push(c); S.settings.currentClass = c.id; if (U.rep) U.rep.cls = c.id;
     await save();
     // the classes sheet's history entry is reused for the class screen
     U.sheet = null; U.classFrom = U.view === 'class' ? 'settings' : U.view; U.view = 'class'; U.classId = c.id; U.cq = '';
@@ -1355,21 +1366,23 @@ const A = {
     if (r && r.outcome === 'dismissed') showToast('Not installed', 'Settings → Install, any time', null);
   },
   openPlRpt(id) { U.sheet = { type: 'plRpt', r: rptDefaults(id) }; pushNav(); render(); },
-  rPl(p) { U.sheet.r.pl = p; render(); },
-  rPer(k) { U.sheet.r.period = k; render(); },
+  rPl(p) { U.sheet.r.pl = p; U.sheet.prev = null; render(); },
+  rPer(k) { U.sheet.r.period = k; U.sheet.prev = null; render(); },
   async rPreview() {
-    const d = rptData(U.sheet.r), box = $('#rPrev'); box.innerHTML = '<span class="small">Preparing…</span>';
-    const files = await rptPngFiles(d);
-    box.innerHTML = files.map((f, i) => `<img src="${URL.createObjectURL(f)}" alt="Report page ${i + 1}" style="width:100%;border:1px solid #DAD8CF;border-radius:8px">`).join('');
+    const sh = U.sheet; sh.prev = 'loading'; render();
+    const files = await rptPngFiles(rptData(sh.r));
+    if (U.sheet !== sh) return;
+    sh.prev = files.map((f) => URL.createObjectURL(f)); render(); // kept in state so later redraws don't lose it
   },
   async rSend(kind) {
     const d = rptData(U.sheet.r), r = U.sheet.r;
     if (kind === 'text') {
-      const txt = rptText(d), m = comdFor('Pl Comd', r.pl);
+      const txt = rptText(d), m = r.pl === '*' ? null : comdFor('Pl Comd', r.pl);
       if (m && m.phone) { window.open(waLink(m.phone, txt), '_blank'); return; }
       if (navigator.share) { try { await navigator.share({ text: txt }); } catch (e) { /* cancelled */ } return; }
       window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank'); return;
     }
+    if (kind === 'xlsx') { const f = buildXlsx(d.es, d.tag); downloadFile(f); showToast('Excel saved', f.name + ' (Downloads)', null); render(); return; }
     const files = kind === 'pdf' ? [await rptPdfFile(d)] : await rptPngFiles(d);
     const res = await shareFile(files, kind === 'png' ? `${d.short} · ${d.period}` : '');
     if (res === 'blocked') { files.forEach(downloadFile); showToast(kind === 'pdf' ? 'PDF saved' : `${files.length} picture${files.length > 1 ? 's' : ''} saved`, 'Downloads', null); render(); }
@@ -1460,17 +1473,7 @@ const A = {
     await save(); U.sheet = null; silentBack();
     showToast(`${name} started`, archive ? 'Now add this term’s classes' : 'Counts restart from today', null); render();
   },
-  async exportXlsx(how) {
-    const f = buildXlsx();
-    if (how === 'share') {
-      const r = await shareFile(f);
-      if (r !== 'blocked') return;
-      downloadFile(f);
-      uiAlert(`This phone does not allow sharing Excel files directly, so it was saved to Downloads instead:\n${f.name}\n\nTo send it, open the Files app → Downloads, long-press the file and tap Share.`, 'Saved to Downloads');
-      return;
-    }
-    downloadFile(f); showToast('Excel saved', f.name + ' (Downloads)', null); render();
-  },
+
   async backup(how) {
     const f = backupFile();
     let note = f.name + ' (Downloads)';
@@ -1554,10 +1557,10 @@ document.addEventListener('change', async (ev) => {
   }
   else if (t.id === 'ntStart' && t.value) { $('#ntNameShow').textContent = seasonOf(t.value).name; }
   else if (t.id === 'histTerm') { U.histTerm = t.checked; render(); }
-  else if (t.id === 'rClass') { U.sheet.r.cls = t.value; render(); }
-  else if (t.id === 'rMonth' && t.value) { U.sheet.r.month = t.value; render(); }
+  else if (t.id === 'rClass') { U.sheet.r.cls = t.value; U.sheet.prev = null; render(); }
+  else if (t.id === 'rMonth' && t.value) { U.sheet.r.month = t.value; U.sheet.prev = null; render(); }
   else if ((t.id === 'rFrom' || t.id === 'rTo') && t.value) {
-    U.sheet.r[t.id === 'rFrom' ? 'from' : 'to'] = t.value;
+    U.sheet.r[t.id === 'rFrom' ? 'from' : 'to'] = t.value; U.sheet.prev = null;
     if (U.sheet.r.from > U.sheet.r.to) { uiAlert('“From” must be before “To”.'); }
     render();
   }
