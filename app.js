@@ -2,7 +2,7 @@
 /* GC's Obsn - PMA (cadet observations)
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.7.2';
+const APP_VERSION = '0.7.3';
 const APP_NAME = "GC's Obsn - PMA";
 const FILE_TAG = 'GCs_Obsn_PMA';
 const CREDIT = 'Developed by Maj Ahmad Mujtaba, AEC (Cptr Sc)';
@@ -393,7 +393,7 @@ function viewClass() {
       ${shared.length ? `<span class="small">Same cadets as: ${shared.map((y) => esc(className(y))).join(', ')}</span>` : ''}
     </div>
     ${isCur ? '' : `<button class="btn" data-act="useClass" data-arg="${c.id}">Use this class for recording</button>`}
-    <button class="btn" data-act="openPlRpt" data-arg="${c.id}">Report for Pl Comd / Excel</button>
+    <button class="btn" data-act="openPlRpt" data-arg="${c.id}">Share or save platoon report</button>
     <div class="between"><span class="label">Cadets</span>
       ${U.clsSel ? `<button class="chip sm" style="border:0;color:#23402F" data-act="clsAll">${U.clsSel.size === act.length ? 'Select none' : 'Select all'}</button>`
         : (act.length ? '<button class="chip sm" style="border:0;color:#A1271B" data-act="clsSelect">Remove cadets…</button>' : '')}</div>
@@ -481,7 +481,7 @@ function viewReports() {
     ${r.period === 'term' && S.terms.length > 1 ? `<select id="repTerm" aria-label="Term" style="background:#183026;color:#fff;border:0">${S.terms.slice().reverse().map((t) =>
       `<option value="${t.id}" ${r.term === t.id ? 'selected' : ''}>${esc(t.name)} (from ${esc(fmtD(t.start))})${t === curTerm() ? ' · current' : ''}</option>`).join('')}</select>` : ''}</header>
     <main class="body">
-    <button class="btn pri" data-act="openPlRpt" data-arg="${r.cls}">Report for Pl Comd / Excel</button>
+    <button class="btn pri" data-act="openPlRpt" data-arg="${r.cls}">Share or save platoon report</button>
     <div class="grid3 tiles"><div class="t"><b>${es.length}</b><span>Observations</span></div><div class="t"><b>${Object.keys(byCadet).length}</b><span>Cadets</span></div>
     <div class="t"><b style="color:${pend ? '#7A4300' : '#1C1C1A'}">${pend}</b><span>Pending</span></div></div>
     ${base.length ? `<span class="label">By observation · tap to filter</span>
