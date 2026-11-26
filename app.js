@@ -2,7 +2,7 @@
 /* GC's Obsn - PMA (cadet observations)
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.7.3';
+const APP_VERSION = '0.7.4';
 const APP_NAME = "GC's Obsn - PMA";
 const FILE_TAG = 'GCs_Obsn_PMA';
 const CREDIT = 'Developed by Maj Ahmad Mujtaba, AEC (Cptr Sc)';
@@ -111,7 +111,27 @@ const classCadets = (c) => !c ? [] : Object.values(S.cadets)
 const termEntries = (gc) => S.entries.filter((e) => e.gc === gc && e.ts >= termTs());
 const countPill = (n) => n === 0 ? '<span class="pill p-ok">Clear</span>' : `<span class="pill ${n >= 4 ? 'p-red' : 'p-amb'}">${n} obs</span>`;
 const pendingCount = () => S.entries.filter((e) => e.status === 'pending').length;
-const comdFor = (role, key) => S.comds.find((m) => m.role === role && m.key === key);
+// Pl Comds belong to a platoon of a particular course; older entries without a course apply to that platoon in any course.
+const comdFor = (role, key, course) => role === 'Pl Comd'
+  ? S.comds.find((m) => m.role === role && m.key === key && m.course === course) || S.comds.find((m) => m.role === role && m.key === key && !m.course)
+  : S.comds.find((m) => m.role === role && m.key === key);
+// platoon + course pairs that exist among the cadets
+const plCoursePairs = () => { const seen = new Map();
+  Object.values(S.cadets).forEach((x) => { if (x.pl && x.course) seen.set(x.pl + '|' + x.course, { pl: x.pl, course: x.course }); });
+  return [...seen.values()].sort((a, b) => a.course.localeCompare(b.course) || a.pl.localeCompare(b.pl)); };
+const allCourses = () => [...new Set(Object.values(S.cadets).map((x) => x.course).concat(S.classes.map((c) => c.course)).filter(Boolean))].sort();
+function plCourseFor(pl, prefer) { // which course a platoon belongs to, when it can be told
+  const cs = [...new Set(Object.values(S.cadets).filter((x) => x.pl === pl).map((x) => x.course))];
+  return prefer && cs.includes(prefer) ? prefer : cs.length === 1 ? cs[0] : '';
+}
+// Give 'any course' Pl Comds their course once the platoon's cadets are known; drop copies that duplicate a course-specific entry.
+function tidyComds() {
+  S.comds.forEach((m) => { if (m.role === 'Pl Comd' && !m.course) m.course = plCourseFor(m.key); });
+  const seen = new Set();
+  S.comds = S.comds.filter((m) => { const k = m.role + '|' + m.key + '|' + (m.course || ''); if (seen.has(k)) return false; seen.add(k); return true; })
+    .filter((m) => !(m.role === 'Pl Comd' && !m.course && S.comds.some((y) => y !== m && y.role === 'Pl Comd' && y.key === m.key && y.course)));
+}
+const comdWhere = (m) => m.role === 'Term Comd' ? m.key : m.key + (m.course ? ' · ' + m.course : ' · any course');
 
 const ICON = {
   back: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>',
@@ -303,7 +323,7 @@ function viewProfile() {
   const hf = U.histObs, shown = scoped.filter((e) => !hf || e.obs === hf);
   const max = Math.max(1, ...byType.map(([, n]) => n));
   const pend = all.filter((e) => e.status === 'pending').length;
-  const pl = comdFor('Pl Comd', x.pl), tc = comdFor('Term Comd', x.course);
+  const pl = comdFor('Pl Comd', x.pl, x.course), tc = comdFor('Term Comd', x.course);
   const comdRow = (role, m) => `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #EFEDE5">
     <span class="grow"><span class="small" style="font-weight:600">${role}</span><span style="font-size:14px;font-weight:600">${m ? esc([m.rank, m.name].filter(Boolean).join(' ')) + (m.unit ? ' · ' + esc(m.unit) : '') : 'Not saved'}</span></span>
     ${m && m.phone ? `<a class="btn sm" style="display:flex;align-items:center;text-decoration:none" href="tel:${esc(m.phone)}">Call</a><a class="btn sm" style="display:flex;align-items:center;text-decoration:none" href="${waLink(m.phone, waText(x))}" target="_blank" rel="noopener">WhatsApp</a>` : ''}</div>`;
@@ -414,7 +434,7 @@ function viewPending() {
     const cls = S.classes.find((c) => c.id === e.classId);
     const pp = punById(e.pun) || {}, role = pp.contact === 'pl' ? 'Pl Comd' : pp.contact === 'term' ? 'Term Comd' : null;
     const key = role === 'Pl Comd' ? x.pl : x.course;
-    const m = role ? comdFor(role, key) : null;
+    const m = role ? comdFor(role, key, x.course) : null;
     return `<div class="card" style="padding:14px;display:flex;flex-direction:column;gap:8px">
       <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline"><b style="font-size:15px;min-width:0">${esc(x.name)}</b><span class="small" style="white-space:nowrap">${esc(fmtWhen(e.ts))}</span></div>
       <span class="sub">GC ${x.gc} · ${esc(x.pl)}</span>
@@ -799,9 +819,9 @@ function viewSettings() {
 
     <div class="between"><span class="label">Comds directory</span><button class="chip sm" style="border:0;color:#23402F" data-act="editComd" data-arg="new">+ Add</button></div>
     <div class="card" style="overflow:hidden">
-      ${S.comds.length ? S.comds.slice().sort((a, b) => a.role.localeCompare(b.role) || a.key.localeCompare(b.key)).map((m) => `<button class="crow" style="border:0;border-bottom:1px solid #EFEDE5;border-radius:0" data-act="editComd" data-arg="${S.comds.indexOf(m)}">
-        <span style="width:84px;font-size:11px;font-weight:700;color:${m.role === 'Term Comd' ? '#1F3A5F' : '#23402F'}">${m.role === 'Term Comd' ? 'TERM' : 'PL'} · ${esc(m.key)}</span>
-        <span class="grow"><span style="font-size:14px;font-weight:600">${esc([m.rank, m.name].filter(Boolean).join(' '))}</span><span class="small">${esc([m.unit, m.phone].filter(Boolean).join(' · ') || 'No phone saved')}</span></span></button>`).join('')
+      ${S.comds.length ? S.comds.slice().sort((a, b) => a.role.localeCompare(b.role) || (a.course || a.key).localeCompare(b.course || b.key) || a.key.localeCompare(b.key)).map((m) => `<button class="crow" style="border:0;border-bottom:1px solid #EFEDE5;border-radius:0" data-act="editComd" data-arg="${S.comds.indexOf(m)}">
+        <span class="grow"><span style="font-size:11px;font-weight:700;color:${m.role === 'Term Comd' ? '#1F3A5F' : '#23402F'}">${m.role === 'Term Comd' ? 'TERM COMD' : 'PL COMD'} · ${esc(comdWhere(m))}</span>
+        <span style="font-size:14px;font-weight:600">${esc([m.rank, m.name].filter(Boolean).join(' '))}</span><span class="small">${esc([m.unit, m.phone].filter(Boolean).join(' · ') || 'No phone saved')}</span></span></button>`).join('')
       : '<div style="padding:14px" class="small">None yet. Tap “+ Add”, or include a Comds sheet in a class import file.</div>'}</div>
 
     <span class="label">Backup &amp; restore</span>
@@ -1022,18 +1042,21 @@ function archivedSheet() {
 }
 
 function comdSheet() {
-  const i = U.sheet.idx, m = i === 'new' ? { role: 'Pl Comd', key: '', rank: '', name: '', unit: '', phone: '' } : S.comds[+i];
-  const pls = [...new Set(Object.values(S.cadets).map((x) => x.pl))].sort();
-  const courses = [...new Set(Object.values(S.cadets).map((x) => x.course).concat(S.classes.map((x) => x.course)))].sort();
+  const i = U.sheet.idx, f = U.sheet.form || (U.sheet.form = Object.assign({ role: 'Pl Comd', key: '', course: '', rank: '', name: '', unit: '', phone: '' }, i === 'new' ? {} : S.comds[+i]));
+  const isPl = f.role === 'Pl Comd';
+  const opts = isPl ? plCoursePairs().map((p) => ({ v: p.pl + '|' + p.course, l: `${p.pl} · ${p.course}` })) : allCourses().map((c) => ({ v: c, l: c }));
+  const cur = isPl ? f.key + '|' + (f.course || '') : f.key;
+  if (f.key && !opts.some((o) => o.v === cur)) opts.unshift({ v: cur, l: isPl ? `${f.key} · ${f.course || 'any course'}` : f.key }); // keep a saved value that has no cadets now
   return `<h2>${i === 'new' ? 'Add Comd' : 'Edit Comd'}</h2>
-    <div class="grid2"><label class="field"><span>Role</span><select id="mRole"><option ${m.role === 'Pl Comd' ? 'selected' : ''}>Pl Comd</option><option ${m.role === 'Term Comd' ? 'selected' : ''}>Term Comd</option></select></label>
-    <label class="field"><span>Pl (Pl Comd) / Course (Term Comd)</span><input type="text" id="mKey" list="mKeyList" value="${esc(m.key)}"></label></div>
-    <datalist id="mKeyList">${pls.concat(courses).map((v) => `<option value="${esc(v)}">`).join('')}</datalist>
-    <div class="grid2"><label class="field"><span>Rank</span><input type="text" id="mRank" value="${esc(m.rank)}" placeholder="e.g. Capt"></label>
-    <label class="field"><span>Unit</span><input type="text" id="mUnit" value="${esc(m.unit)}"></label></div>
-    <label class="field"><span>Name</span><input type="text" id="mName" value="${esc(m.name)}"></label>
-    <label class="field"><span>Phone</span><input type="tel" id="mPhone" value="${esc(m.phone)}" placeholder="03XX-XXXXXXX"></label>
-    <button class="btn pri" data-act="saveComd">Save</button>
+    <label class="field"><span>Role</span><select id="mRole"><option ${isPl ? 'selected' : ''}>Pl Comd</option><option ${!isPl ? 'selected' : ''}>Term Comd</option></select></label>
+    <label class="field"><span>${isPl ? 'Platoon · Course' : 'Course'}</span>
+      ${opts.length ? `<select id="mKey"><option value="" ${f.key ? '' : 'selected'} disabled>Choose ${isPl ? 'platoon' : 'course'}…</option>${opts.map((o) => `<option value="${esc(o.v)}" ${o.v === cur ? 'selected' : ''}>${esc(o.l)}</option>`).join('')}</select>`
+        : `<span class="small">No ${isPl ? 'platoons' : 'courses'} yet — add a class and its cadets first.</span>`}</label>
+    <div class="grid2"><label class="field"><span>Rank</span><input type="text" id="mRank" value="${esc(f.rank)}" placeholder="e.g. Capt"></label>
+    <label class="field"><span>Unit</span><input type="text" id="mUnit" value="${esc(f.unit)}"></label></div>
+    <label class="field"><span>Name</span><input type="text" id="mName" value="${esc(f.name)}"></label>
+    <label class="field"><span>Phone</span><input type="tel" id="mPhone" value="${esc(f.phone)}" placeholder="03XX-XXXXXXX"></label>
+    <button class="btn pri" data-act="saveComd" ${opts.length ? '' : 'disabled'}>Save</button>
     <div class="grid2">${i === 'new' ? '' : '<button class="btn danger" data-act="delComd">Delete</button>'}<button class="btn" data-act="closeSheet" style="${i === 'new' ? 'grid-column:1/-1' : ''}">Cancel</button></div>`;
 }
 
@@ -1167,10 +1190,14 @@ async function applyImport() {
   const inactive = $('#markInactive') && $('#markInactive').checked;
   p.rows.forEach((x) => { S.cadets[x.gc] = Object.assign({}, S.cadets[x.gc] || {}, x, { active: true }); });
   if (inactive) p.missing.forEach((gc) => { if (S.cadets[gc]) S.cadets[gc].active = false; });
+  const impCls = S.classes.find((c) => c.id === p.classId);
   p.comds.forEach((m) => {
-    const i = S.comds.findIndex((y) => y.role === m.role && y.key === m.key);
+    if (m.role === 'Pl Comd' && !m.course) m.course = plCourseFor(m.key, impCls && impCls.course);
+    let i = S.comds.findIndex((y) => y.role === m.role && y.key === m.key && (y.course || '') === (m.course || ''));
+    if (i < 0 && m.role === 'Pl Comd' && m.course) i = S.comds.findIndex((y) => y.role === m.role && y.key === m.key && !y.course);
     if (i >= 0) S.comds[i] = m; else S.comds.push(m);
   });
+  tidyComds();
   S.lastImport = { file: p.file, ts: Date.now() };
   await save();
   U.sheet = null; U.preview = null; silentBack();
@@ -1320,6 +1347,7 @@ const A = {
     if (!old && S.cadets[gc]) { uiAlert(`GC ${gc} already exists: ${S.cadets[gc].name} (${S.cadets[gc].course}). Edit that cadet instead.`); return; }
     const active = old ? $('#cActive').checked : true;
     S.cadets[gc] = Object.assign({}, old || {}, { gc, name, tag, pl, appt, course, gp, active });
+    tidyComds();
     await save();
     if (more === 'more') {
       U.sheet = { type: 'cadet', gc: null, classId: U.sheet.classId, back: U.sheet.back, prefill: { gc: '', name: '', tag: '', pl, appt: '', course, gp } };
@@ -1354,13 +1382,22 @@ const A = {
   openCadetList() { U.sheet = { type: 'cadetList', q: '' }; pushNav(); render(); },
   editComd(i) { U.sheet = { type: 'comd', idx: i }; pushNav(); render(); },
   async saveComd() {
-    const role = $('#mRole').value, rawKey = norm($('#mKey').value);
-    const m = { role, key: role === 'Term Comd' ? normCourse(rawKey) : rawKey.toUpperCase(), rank: norm($('#mRank').value), name: norm($('#mName').value), unit: norm($('#mUnit').value), phone: norm($('#mPhone').value) };
-    if (!m.key || !m.name) { uiAlert('Pl/Course and Name are required.'); return; }
+    const role = $('#mRole').value, v = $('#mKey') ? $('#mKey').value : '';
+    const [key, course] = role === 'Pl Comd' ? v.split('|') : [v, ''];
+    const m = { role, key: key || '', rank: norm($('#mRank').value), name: norm($('#mName').value), unit: norm($('#mUnit').value), phone: norm($('#mPhone').value) };
+    if (role === 'Pl Comd') m.course = course || '';
+    if (!m.key) { uiAlert(role === 'Pl Comd' ? 'Choose the platoon.' : 'Choose the course.'); return; }
+    if (!m.name) { uiAlert('Enter the name.'); return; }
     const i = U.sheet.idx;
-    const dup = S.comds.findIndex((y) => y.role === m.role && y.key === m.key);
+    const dup = S.comds.findIndex((y, j) => y.role === m.role && y.key === m.key && (y.course || '') === (m.course || '') && String(j) !== String(i));
+    if (dup >= 0 && i !== 'new') { uiAlert(`A ${role} for ${comdWhere(m)} is already saved. Edit that one instead.`); return; }
+    if (i === 'new' && dup < 0 && m.course) { const any = S.comds.findIndex((y) => y.role === 'Pl Comd' && y.key === m.key && !y.course); if (any >= 0) { S.comds[any] = m; await save(); U.sheet = null; silentBack(); showToast('Comd saved', `${m.role} ${comdWhere(m)}`, null); return; } }
+    if (i === 'new' && dup >= 0) {
+      const o = S.comds[dup];
+      if (!(await uiConfirm(`${[o.rank, o.name].filter(Boolean).join(' ')} is already saved as ${role} for ${comdWhere(m)}.`, { title: 'Replace?', ok: 'Replace' }))) return;
+    }
     if (i === 'new') { if (dup >= 0) S.comds[dup] = m; else S.comds.push(m); } else S.comds[+i] = m;
-    await save(); U.sheet = null; silentBack(); showToast('Comd saved', `${m.role} ${m.key}`, null);
+    tidyComds(); await save(); U.sheet = null; silentBack(); showToast('Comd saved', `${m.role} ${comdWhere(m)}`, null);
   },
   async delComd() {
     if (!(await uiConfirm('This Comd will be removed from the directory.', { title: 'Delete Comd?', ok: 'Delete', danger: true }))) return;
@@ -1575,6 +1612,10 @@ document.addEventListener('change', async (ev) => {
   }
   else if (t.id === 'ntStart' && t.value) { $('#ntNameShow').textContent = seasonOf(t.value).name; }
   else if (t.id === 'histTerm') { U.histTerm = t.checked; render(); }
+  else if (t.id === 'mRole') {
+    const f = U.sheet.form; ['Rank', 'Unit', 'Name', 'Phone'].forEach((k) => { f[k.toLowerCase()] = $('#m' + k).value; });
+    f.role = t.value; f.key = ''; f.course = ''; render();
+  }
   else if (t.id === 'rClass') { U.sheet.r.cls = t.value; U.sheet.prev = null; render(); }
   else if (t.id === 'rMonth' && t.value) { U.sheet.r.month = t.value; U.sheet.prev = null; render(); }
   else if ((t.id === 'rFrom' || t.id === 'rTo') && t.value) {
@@ -1591,6 +1632,7 @@ window.addEventListener('popstate', goBack);
 
 function migrate() { // fill fields added in later versions
   S.settings = Object.assign(freshState().settings, S.settings || {});
+  if (S.comds) tidyComds();
   if (!Array.isArray(S.settings.puns) || !S.settings.puns.length) S.settings.puns = PUN_DEFAULT.map((d) => Object.assign({}, d));
   if (!Array.isArray(S.settings.obs) || !S.settings.obs.length) S.settings.obs = OBS_DEFAULT.slice();
   if (!S.terms || !S.terms.length) S.terms = [{ id: uid(), start: S.settings.termStart }];
