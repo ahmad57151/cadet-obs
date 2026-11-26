@@ -2,7 +2,7 @@
 /* GC's Obsn - PMA (cadet observations)
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.7.5';
+const APP_VERSION = '0.7.6';
 const APP_NAME = "GC's Obsn - PMA";
 const FILE_TAG = 'GCs_Obsn_PMA';
 const CREDIT = 'Developed by Maj Ahmad Mujtaba, AEC (Cptr Sc)';
@@ -205,7 +205,7 @@ function navHtml() {
 function toastHtml() {
   const t = U.toast;
   return `<div class="toast ${U.view === 'record' && !U.cadet && U.mode === 'batch' ? 'high' : ''}" role="status">${ICON.check}<div class="grow"><b style="font-size:14px">${esc(t.msg)}</b><span>${esc(t.sub)}</span></div>
-    ${t.undo ? '<button data-act="undo">UNDO</button>' : ''}</div>`;
+    ${t.undo ? '<button data-act="undo">Undo</button>' : ''}</div>`;
 }
 
 function classHeader(kicker) {
@@ -220,8 +220,8 @@ function viewRecord() {
   let body;
   if (!c) {
     body = `<div class="empty">${LOGO(96)}<b>Set up your first class</b><span>A class is Subject + Course + Gp, e.g. ICT · 158 L/C · Gp A. Create the class, then import or add its cadets.</span>
-      <button class="btn pri" data-act="openClasses">Add class</button>
-      ${!isInstalled() && installEvt ? '<button class="btn" data-act="install">Install app on this phone</button>' : ''}
+      <button class="btn pri" data-act="openClasses">Add Class</button>
+      ${!isInstalled() && installEvt ? '<button class="btn" data-act="install">Install App on This Phone</button>' : ''}
       <span class="small" style="padding-top:24px">${CREDIT}</span></div>`;
   } else {
     const cadets = classCadets(c);
@@ -236,7 +236,7 @@ function viewRecord() {
     if (U.mode === 'batch') body += batchFootHtml();
   }
   return `<header class="hdr">${classHeader(esc(APP_NAME))}
-    ${c ? `<div class="seg"><button class="${U.mode === 'cadet' ? 'on' : ''}" data-act="mode" data-arg="cadet">Cadet first</button><button class="${U.mode === 'batch' ? 'on' : ''}" data-act="mode" data-arg="batch">Observation first</button></div>` : ''}
+    ${c ? `<div class="seg"><button class="${U.mode === 'cadet' ? 'on' : ''}" data-act="mode" data-arg="cadet">Cadet First</button><button class="${U.mode === 'batch' ? 'on' : ''}" data-act="mode" data-arg="batch">Observation First</button></div>` : ''}
     </header><main class="body" style="${U.mode === 'batch' && c ? 'padding-bottom:260px' : ''}">${body}</main>`;
 }
 
@@ -250,7 +250,7 @@ function listHtml() {
   const rows = filteredCadets();
   if (!rows.length) return classCadets(curClass()).length ? '<div class="empty"><span>No cadet matches.</span></div>'
     : `<div class="empty"><b>No cadets in this class yet</b><span>Import the class list from Excel/CSV, or add cadets one by one.</span>
-      <button class="btn pri" data-act="openClass" data-arg="${curClass().id}">Import / add cadets</button></div>`;
+      <button class="btn pri" data-act="openClass" data-arg="${curClass().id}">Import / Add Cadets</button></div>`;
   if (U.mode === 'batch') {
     return rows.map((x) => {
       const on = U.batchSel.has(x.gc);
@@ -270,7 +270,7 @@ function listHtml() {
 function batchObsHtml() {
   return `<span class="label">1 · Observation</span><div class="chips">${S.settings.obs.map((o, i) =>
     `<button class="chip sm ${U.batchObs === o ? 'on' : ''}" data-act="batchObs" data-arg="${i}">${esc(o)}</button>`).join('')}</div>
-    <div class="between"><span class="label">2 · Tick cadets</span>${U.batchSel.size ? '<button class="chip sm" style="border:0" data-act="batchClear">Clear all</button>' : ''}</div>`;
+    <div class="between"><span class="label">2 · Tick cadets</span>${U.batchSel.size ? '<button class="chip sm" style="border:0" data-act="batchClear">Clear All</button>' : ''}</div>`;
 }
 
 function batchFootHtml() {
@@ -279,7 +279,7 @@ function batchFootHtml() {
   return `<div class="foot"><label class="field"><span class="label">3 · Punishment for all ticked</span>
     <select id="batchPun">${puns().map((p) => `<option value="${p.id}" ${U.batchPun === p.id ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}
     <option value="" ${U.batchPun === '' ? 'selected' : ''}>Decide later (each cadet)</option></select></label>
-    <button class="btn pri" data-act="batchSave" ${ok ? '' : 'disabled'}>${ok ? `Save “${esc(U.batchObs)}” for ${n} cadet${n > 1 ? 's' : ''}` : (U.batchObs ? 'Tick cadets' : 'Choose an observation')}</button></div>`;
+    <button class="btn pri" data-act="batchSave" ${ok ? '' : 'disabled'}>${ok ? `Save “${esc(U.batchObs)}” for ${n} Cadet${n > 1 ? 's' : ''}` : (U.batchObs ? 'Tick Cadets' : 'Choose Observation')}</button></div>`;
 }
 
 function viewCadet() {
@@ -305,9 +305,9 @@ function viewCadet() {
     <span class="label">1 · Observation</span><div class="grid2">${obsHtml}</div>${hint}
     <span class="label" style="padding-top:4px">2 · Punishment — tap to save</span>
     <div class="grid2">${puns().map((p) => `<button class="pun ${punCls(p)}" data-act="savePun" data-arg="${p.id}" ${dis}>${esc(p.label)}</button>`).join('')}
-    <button class="pun later" data-act="savePun" data-arg="" ${dis}>Decide later</button></div>
+    <button class="pun later" data-act="savePun" data-arg="" ${dis}>Decide Later</button></div>
     ${U.showNote ? `<label class="field"><span>Note (optional — kept for sitrep)</span><textarea id="note" placeholder="e.g. Arrived 12 min late, no reason given">${esc(U.note)}</textarea></label>`
-      : '<button class="btn dashed" data-act="showNote">+ Add note (optional)</button>'}
+      : '<button class="btn dashed" data-act="showNote">+ Add Note (Optional)</button>'}
     </main>`;
 }
 
@@ -327,19 +327,19 @@ function viewProfile() {
   const comdRow = (role, m) => `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #EFEDE5">
     <span class="grow"><span class="small" style="font-weight:600">${role}</span><span style="font-size:14px;font-weight:600">${m ? esc([m.rank, m.name].filter(Boolean).join(' ')) + (m.unit ? ' · ' + esc(m.unit) : '') : 'Not saved'}</span></span>
     ${m && m.phone ? `<a class="btn sm" style="display:flex;align-items:center;text-decoration:none" href="tel:${esc(m.phone)}">Call</a><a class="btn sm" style="display:flex;align-items:center;text-decoration:none" href="${waLink(m.phone, waText(x))}" target="_blank" rel="noopener">WhatsApp</a>` : ''}</div>`;
-  return `<header class="hdr"><div class="row"><button class="back" data-act="back" aria-label="Back">${ICON.back}</button><button class="hbtn" data-act="editCadet" data-arg="${x.gc}">Edit cadet</button></div>
+  return `<header class="hdr"><div class="row"><button class="back" data-act="back" aria-label="Back">${ICON.back}</button><button class="hbtn" data-act="editCadet" data-arg="${x.gc}">Edit Cadet</button></div>
     <div style="display:flex;gap:14px;align-items:center"><span class="av" style="width:56px;height:56px;border-radius:28px;font-size:19px">${esc(initials(x.name))}</span>
     <span class="grow"><span style="font-size:20px;font-weight:700;display:flex;gap:8px;align-items:center;flex-wrap:wrap">${esc(x.name)}${x.tag ? `<span class="tag">${esc(x.tag)}</span>` : ''}</span>
     <span style="font-size:13px;color:#D9E3DA">GC ${x.gc} · ${esc(x.appt || 'GC')} · ${esc(x.pl)} · ${esc(x.course)} Gp ${esc(x.gp)}</span></span></div></header>
     <main class="body">
-    <div class="grid3 tiles"><div class="t"><b style="color:${te.length >= 4 ? '#A1271B' : '#1C1C1A'}">${te.length}</b><span>This term</span></div>
-    <div class="t"><b>${all.length}</b><span>All time</span></div><div class="t"><b style="color:${pend ? '#7A4300' : '#1C1C1A'}">${pend}</b><span>Pending</span></div></div>
+    <div class="grid3 tiles"><div class="t"><b style="color:${te.length >= 4 ? '#A1271B' : '#1C1C1A'}">${te.length}</b><span>This Term</span></div>
+    <div class="t"><b>${all.length}</b><span>All Time</span></div><div class="t"><b style="color:${pend ? '#7A4300' : '#1C1C1A'}">${pend}</b><span>Pending</span></div></div>
     ${all.length ? `<div class="between"><span class="label">By type · tap to filter history</span>
-      ${hasOld ? `<span class="chips" style="gap:4px"><button class="chip sm ${U.histAll ? '' : 'on'}" data-act="histScope" data-arg="term">This term</button><button class="chip sm ${U.histAll ? 'on' : ''}" data-act="histScope" data-arg="all">All time</button></span>` : ''}</div>
+      ${hasOld ? `<span class="chips" style="gap:4px"><button class="chip sm ${U.histAll ? '' : 'on'}" data-act="histScope" data-arg="term">This Term</button><button class="chip sm ${U.histAll ? 'on' : ''}" data-act="histScope" data-arg="all">All Time</button></span>` : ''}</div>
       <div class="card" style="padding:6px;display:flex;flex-direction:column;gap:2px">${byType.length ? byType.map(([o, n]) => filterBar('histObs', o, o, n, max, hf)).join('')
         : '<span class="small" style="padding:8px">Nothing this term. Tap “All time” to see earlier terms.</span>'}</div>` : ''}
     <span class="label">Comds</span><div class="card">${comdRow('PL COMD · ' + esc(x.pl), pl)}${comdRow('TERM COMD · ' + esc(x.course), tc)}</div>
-    ${all.length ? `<button class="btn" data-act="openGcRpt" data-arg="${x.gc}">Share or save this GC's report</button>` : ''}
+    ${all.length ? `<button class="btn" data-act="openGcRpt" data-arg="${x.gc}">Share or Save GC's Report</button>` : ''}
     <div class="between"><span class="label">History${hf ? ' · ' + esc(hf) : ''}</span>${hf ? '<button class="chip sm" data-act="histObs" data-arg="">Clear ✕</button>' : '<span class="small">Tap an entry to edit</span>'}</div>
     <div class="list">${all.length ? (shown.length ? shown.map((e) => histHtml(e, e.ts < termTs())).join('') : '<div class="empty"><span>No entries for this filter.</span></div>') : '<div class="empty"><span>No observations recorded.</span></div>'}</div>
     </main>`;
@@ -409,19 +409,19 @@ function viewClass() {
     <main class="body">
     <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
       <b style="font-size:15px">${act.length} cadet${act.length === 1 ? '' : 's'}${Object.keys(pls).length ? ' · ' + Object.entries(pls).sort().map(([k, v]) => `${esc(k)} (${v})`).join(', ') : ''}</b>
-      <div class="grid2"><button class="btn pri sm" data-act="pickFile" data-arg="${c.id}">Import list</button><button class="btn sm" data-act="newCadet">Add cadet</button></div>
+      <div class="grid2"><button class="btn pri sm" data-act="pickFile" data-arg="${c.id}">Import List</button><button class="btn sm" data-act="newCadet">Add Cadet</button></div>
       <span class="small">Excel/CSV with columns GC No, Name, Pl (Appt optional). If the file also has Course and Gp, only rows for ${esc(c.course)} Gp ${esc(c.gp)} are taken. Importing again updates the list — nothing recorded is lost.</span>
       ${shared.length ? `<span class="small">Same cadets as: ${shared.map((y) => esc(className(y))).join(', ')}</span>` : ''}
     </div>
-    ${isCur ? '' : `<button class="btn" data-act="useClass" data-arg="${c.id}">Use this class for recording</button>`}
-    <button class="btn" data-act="openPlRpt" data-arg="${c.id}">Share or save platoon report</button>
+    ${isCur ? '' : `<button class="btn" data-act="useClass" data-arg="${c.id}">Use This Class for Recording</button>`}
+    <button class="btn" data-act="openPlRpt" data-arg="${c.id}">Share or Save Platoon Report</button>
     <div class="between"><span class="label">Cadets</span>
-      ${U.clsSel ? `<button class="chip sm" style="border:0;color:#23402F" data-act="clsAll">${U.clsSel.size === act.length ? 'Select none' : 'Select all'}</button>`
-        : (act.length ? '<button class="chip sm" style="border:0;color:#A1271B" data-act="clsSelect">Remove cadets…</button>' : '')}</div>
+      ${U.clsSel ? `<button class="chip sm" style="border:0;color:#23402F" data-act="clsAll">${U.clsSel.size === act.length ? 'Select None' : 'Select All'}</button>`
+        : (act.length ? '<button class="chip sm" style="border:0;color:#A1271B" data-act="clsSelect">Remove Cadets…</button>' : '')}</div>
     <label class="search">${ICON.search}<input id="ccq" type="text" placeholder="GC No, name or Pl" value="${esc(U.cq || '')}"></label>
     <div id="clsList" class="list">${classListRows(c)}</div>
-    ${removed && !U.clsSel ? `<button class="btn sm" data-act="toggleRemoved">${U.showRemoved ? 'Hide' : 'Show'} removed cadets (${removed})</button>` : ''}
-    ${U.clsSel ? '' : `<button class="btn danger" data-act="delClass" data-arg="${c.id}">Remove this class</button>`}
+    ${removed && !U.clsSel ? `<button class="btn sm" data-act="toggleRemoved">${U.showRemoved ? 'Hide' : 'Show'} Removed Cadets (${removed})</button>` : ''}
+    ${U.clsSel ? '' : `<button class="btn danger" data-act="delClass" data-arg="${c.id}">Remove Class</button>`}
     </main>
     ${U.clsSel ? `<div class="foot"><span class="small">Removed cadets disappear from this class. Their records are kept, and importing the list again brings them back.</span>
       <div class="grid2"><button class="btn" data-act="clsCancel">Cancel</button>
@@ -436,16 +436,16 @@ function viewPending() {
     const pp = punById(e.pun) || {}, role = pp.contact === 'pl' ? 'Pl Comd' : pp.contact === 'term' ? 'Term Comd' : null;
     const key = role === 'Pl Comd' ? x.pl : x.course;
     const m = role ? comdFor(role, key, x.course) : null;
-    return `<div class="card" style="padding:14px;display:flex;flex-direction:column;gap:8px">
-      <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline"><b style="font-size:15px;min-width:0">${esc(x.name)}</b><span class="small" style="white-space:nowrap">${esc(fmtWhen(e.ts))}</span></div>
+    return `<div class="card" data-act="openProfile" data-arg="${x.gc}" style="padding:14px;display:flex;flex-direction:column;gap:8px;cursor:pointer">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline"><b style="font-size:15px;min-width:0">${esc(x.name)} <span aria-hidden="true" style="color:#8A8A84">›</span></b><span class="small" style="white-space:nowrap">${esc(fmtWhen(e.ts))}</span></div>
       <span class="sub">GC ${x.gc} · ${esc(x.pl)}</span>
       <span class="sub" style="color:#3F3F3A">${esc(e.obs)}${cls ? ' · ' + esc(className(cls)) : ''}</span>
       ${e.note ? `<span class="small">“${esc(e.note)}”</span>` : ''}
       ${role ? `<div style="background:#F5F4EF;border-radius:10px;padding:10px 12px" class="small"><b style="color:#1C1C1A">${role} ${esc(key)}:</b> ${m ? esc([m.rank, m.name, m.unit, m.phone].filter(Boolean).join(' · ')) : 'not saved yet (Settings → Comds directory)'}</div>` : ''}
       <div style="display:flex;gap:8px">
-      ${!e.pun ? `<button class="btn sm pri" style="flex:1" data-act="editEntry" data-arg="${e.id}">Decide punishment</button>` : ''}
-      ${m && m.phone ? `<a class="btn sm" style="flex:1;display:flex;align-items:center;justify-content:center;text-decoration:none" href="tel:${esc(m.phone)}">Call</a>
-        <a class="btn sm" style="flex:1;display:flex;align-items:center;justify-content:center;text-decoration:none" href="${waLink(m.phone, waText(x))}" target="_blank" rel="noopener">WhatsApp</a>` : ''}
+      ${!e.pun ? `<button class="btn sm pri" style="flex:1" data-act="editEntry" data-arg="${e.id}">Decide Punishment</button>` : ''}
+      ${m && m.phone ? `<a class="btn sm" data-act="link" style="flex:1;display:flex;align-items:center;justify-content:center;text-decoration:none" href="tel:${esc(m.phone)}">Call</a>
+        <a class="btn sm" data-act="link" style="flex:1;display:flex;align-items:center;justify-content:center;text-decoration:none" href="${waLink(m.phone, waText(x))}" target="_blank" rel="noopener">WhatsApp</a>` : ''}
       ${e.pun ? `<button class="btn sm pri" style="flex:1" data-act="markDone" data-arg="${e.id}">Done</button>` : ''}</div></div>`;
   };
   const groups = S.settings.puns.map((p) => [p.id, p.label]).concat([[null, 'Punishment not decided']]);
@@ -502,7 +502,7 @@ function viewReports() {
     ${r.period === 'term' && S.terms.length > 1 ? `<select id="repTerm" aria-label="Term" style="background:#183026;color:#fff;border:0">${S.terms.slice().reverse().map((t) =>
       `<option value="${t.id}" ${r.term === t.id ? 'selected' : ''}>${esc(t.name)} (from ${esc(fmtD(t.start))})${t === curTerm() ? ' · current' : ''}</option>`).join('')}</select>` : ''}</header>
     <main class="body">
-    <button class="btn pri" data-act="openPlRpt" data-arg="${r.cls}">Share or save platoon report</button>
+    <button class="btn pri" data-act="openPlRpt" data-arg="${r.cls}">Share or Save Platoon Report</button>
     <div class="grid3 tiles"><div class="t"><b>${es.length}</b><span>Observations</span></div><div class="t"><b>${Object.keys(byCadet).length}</b><span>Cadets</span></div>
     <div class="t"><b style="color:${pend ? '#7A4300' : '#1C1C1A'}">${pend}</b><span>Pending</span></div></div>
     ${base.length ? `<span class="label">By observation · tap to filter</span>
@@ -514,7 +514,7 @@ function viewReports() {
     <div class="list">${top.map(([gc, n], i) => { const x = S.cadets[gc] || { name: '?', pl: '' };
       return `<button class="crow" style="min-height:56px" data-act="openProfile" data-arg="${gc}"><span style="width:20px;font-weight:700;color:#5B5B55">${i + 1}</span>
       <span class="grow"><span class="nm">${esc(x.name)}</span><span class="sub">GC ${gc} · ${esc(x.pl)}</span></span><span class="pill ${n >= 4 ? 'p-red' : n >= 2 ? 'p-amb' : 'p-grey'}">${n}${filt.length ? '×' : ' obs'}</span></button>`; }).join('') || '<div class="empty"><span>No cadets for this filter.</span></div>'}</div>
-    ${ranked.length > 10 ? `<button class="btn sm" data-act="repAllTop">${r.allTop ? 'Show top 10' : `Show all ${ranked.length} cadets`}</button>` : ''}`
+    ${ranked.length > 10 ? `<button class="btn sm" data-act="repAllTop">${r.allTop ? 'Show Top 10' : `Show All ${ranked.length} Cadets`}</button>` : ''}`
     : '<div class="empty"><span>No observations in this period.</span></div>'}
 
     </main>`;
@@ -778,7 +778,7 @@ function plRptSheet() {
     <label class="field"><span>Class</span><select id="rClass">${liveClasses().map((c) => `<option value="${c.id}" ${r.cls === c.id ? 'selected' : ''}>${esc(className(c))}</option>`).join('')}
       <option value="all" ${r.cls === 'all' ? 'selected' : ''}>All my classes</option></select></label>
     <div class="field"><span>Platoon</span><div class="chips">${pls.length ? pls.map((p) => `<button class="chip ${r.pl === p ? 'on' : ''}" data-act="rPl" data-arg="${esc(p)}">${esc(p)}</button>`).join('')
-      + (pls.length > 1 ? `<button class="chip ${allPl ? 'on' : ''}" data-act="rPl" data-arg="*">All platoons</button>` : '') : '<span class="small">No cadets in this class.</span>'}</div></div>`}
+      + (pls.length > 1 ? `<button class="chip ${allPl ? 'on' : ''}" data-act="rPl" data-arg="*">All Platoons</button>` : '') : '<span class="small">No cadets in this class.</span>'}</div></div>`}
     <div class="field"><span>Period</span><div class="seg" style="background:#EFEDE5">${seg('term', 'Term')}${seg('month', 'Month')}${seg('range', 'Range')}${r.gc ? seg('all', 'All') : ''}</div>
       ${r.period === 'month' ? `<input type="month" id="rMonth" value="${esc(r.month)}">` : ''}
       ${r.period === 'range' ? `<div class="grid2"><label class="field"><span>From</span><input type="date" id="rFrom" value="${esc(r.from)}"></label><label class="field"><span>To</span><input type="date" id="rTo" value="${esc(r.to)}"></label></div>` : ''}
@@ -788,7 +788,7 @@ function plRptSheet() {
     <span class="label">Format</span>
     <div class="seg" style="background:#EFEDE5">${RFMT.map(([k, l]) => `<button class="${fmt === k ? 'on' : ''}" style="${fmt === k ? '' : 'color:#3F3F3A'}" data-act="rFmt" data-arg="${k}">${l}</button>`).join('')}</div>
     <span class="small">${RFMT_NOTE[fmt]}</span>
-    <div class="grid2"><button class="btn pri" data-act="rSend" data-arg="share" ${ok ? '' : 'disabled'}>Share…</button><button class="btn" data-act="rSend" data-arg="save" ${ok ? '' : 'disabled'}>Save to phone</button></div>
+    <div class="grid2"><button class="btn pri" data-act="rSend" data-arg="share" ${ok ? '' : 'disabled'}>Share…</button><button class="btn" data-act="rSend" data-arg="save" ${ok ? '' : 'disabled'}>Save to Phone</button></div>
     <span class="small" style="text-align:center">Share… lets you choose any app. Save to phone puts the file in your Downloads folder.</span>
     ${fmt === 'xlsx' ? '' : `<button class="btn sm" data-act="rPreview" ${ok ? '' : 'disabled'}>Preview</button>`}
     <div id="rPrev" class="list">${U.sheet.prev === 'loading' ? '<span class="small">Preparing…</span>'
@@ -827,29 +827,29 @@ function termBanner() {
   const t = curTerm();
   if (today() <= termEnd(t)) return '';
   return `<div class="warn" style="display:flex;align-items:center;gap:10px"><span style="flex:1">${esc(t.name)} was due to end on ${esc(fmtD(termEnd(t)))}. Start ${esc(seasonOf(nextTermStart(t)).name)}?</span>
-    <button class="btn sm" style="flex:none" data-act="openNewTerm">New term</button></div>`;
+    <button class="btn sm" style="flex:none" data-act="openNewTerm">New Term</button></div>`;
 }
 function backupBanner() {
   if (!S.entries.length) return '';
   const d = daysSince(S.settings.lastBackup);
   if (d !== null && d < 7) return '';
   return `<div class="warn" style="display:flex;align-items:center;gap:10px"><span style="flex:1">${d === null ? 'No backup yet.' : `Last backup ${d} days ago.`} Save a backup so your records are safe if the phone is lost or reset.</span>
-    <button class="btn sm" style="flex:none" data-act="backup" data-arg="save">Back up</button></div>`;
+    <button class="btn sm" style="flex:none" data-act="backup" data-arg="save">Back Up</button></div>`;
 }
 
 function viewSettings() {
   const act = Object.values(S.cadets).filter((x) => x.active).length;
   const lb = S.settings.lastBackup, d = daysSince(lb);
   return `<header class="hdr">${title('Settings')}</header><main class="body">
-    <div class="between"><span class="label">My classes</span><button class="chip sm" style="border:0;color:#23402F" data-act="openClasses">+ Add class</button></div>
+    <div class="between"><span class="label">My classes</span><button class="chip sm" style="border:0;color:#23402F" data-act="openClasses">+ Add Class</button></div>
     <div class="card" style="overflow:hidden">
       ${liveClasses().length ? liveClasses().map((c) => { const n = classCadets(c).length;
         return `<button class="crow" style="border:0;border-bottom:1px solid #EFEDE5;border-radius:0" data-act="openClass" data-arg="${c.id}">
         <span class="grow"><span class="nm">${esc(className(c))}${c.id === S.settings.currentClass ? '<span class="pill p-ok">Recording</span>' : ''}</span>
         <span class="sub">${n} cadet${n === 1 ? '' : 's'} · tap to import / add / edit</span></span><span aria-hidden="true">›</span></button>`; }).join('')
       : '<div style="padding:14px" class="small">No classes yet. Tap “+ Add class”.</div>'}</div>
-    <div class="grid2"><button class="btn sm" data-act="openCadetList">All cadets · ${act}</button>
-    <button class="btn sm" data-act="openArchived" ${S.classes.some((c) => c.archived) ? '' : 'disabled'}>Old classes · ${S.classes.filter((c) => c.archived).length}</button></div>
+    <div class="grid2"><button class="btn sm" data-act="openCadetList">All Cadets · ${act}</button>
+    <button class="btn sm" data-act="openArchived" ${S.classes.some((c) => c.archived) ? '' : 'disabled'}>Old Classes · ${S.classes.filter((c) => c.archived).length}</button></div>
 
     <span class="label">Observations &amp; punishments</span>
     <button class="crow" data-act="openLists" data-arg="obs">
@@ -861,7 +861,7 @@ function viewSettings() {
       <div style="display:flex;flex-direction:column;gap:2px"><b style="font-size:18px;white-space:nowrap">${esc(curTerm().name)}</b><span class="small">Ends around ${esc(fmtD(termEnd(curTerm())))}</span></div>
       <label class="field"><span>Started on (adjust if the term began on another date)</span><input type="date" id="termStart" value="${esc(S.settings.termStart)}"></label>
       <span class="small">“1st / 2nd time” counts start from this date. The name is set automatically: Summer (May–Oct) or Winter (Nov–Apr).${S.terms.length > 1 ? ` ${S.terms.length - 1} previous term${S.terms.length > 2 ? 's' : ''} kept for reports.` : ''}</span>
-      <button class="btn sm" data-act="openNewTerm">Start new term…</button>
+      <button class="btn sm" data-act="openNewTerm">Start New Term…</button>
     </div>
 
     <div class="between"><span class="label">Comds directory</span><button class="chip sm" style="border:0;color:#23402F" data-act="editComd" data-arg="new">+ Add</button></div>
@@ -874,9 +874,9 @@ function viewSettings() {
     <span class="label">Backup &amp; restore</span>
     <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
       <span style="font-size:14px;font-weight:600;color:${d === null || d >= 7 ? '#A1271B' : '#23402F'}">${lb ? `Last backup: ${esc(fmtWhen(lb))}` : 'No backup yet'}</span>
-      <button class="btn sm pri" data-act="backup" data-arg="save">Save backup file</button>
-      <button class="btn sm" data-act="backup" data-arg="share" ${canShareFiles() ? '' : 'disabled'}>Share backup…</button>
-      <button class="btn sm" data-act="pickRestore">Restore from backup…</button>
+      <button class="btn sm pri" data-act="backup" data-arg="save">Save Backup File</button>
+      <button class="btn sm" data-act="backup" data-arg="share" ${canShareFiles() ? '' : 'disabled'}>Share Backup…</button>
+      <button class="btn sm" data-act="pickRestore">Restore from Backup…</button>
       <span class="small">The backup is one file (${FILE_TAG}_backup_date.txt) with everything: cadets, classes, records, Comds. Keep a copy somewhere safe, e.g. Google Drive or your email. Restoring replaces all data on this phone.</span>
     </div>
 
@@ -884,12 +884,12 @@ function viewSettings() {
     <span class="label">Security</span>
     <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
       <span style="font-size:14px;font-weight:600">PIN lock: ${S.settings.pinHash ? 'On' : 'Off'}</span>
-      ${S.settings.pinHash ? '<div class="grid2"><button class="btn sm" data-act="pinChange">Change PIN</button><button class="btn sm" data-act="pinOff">Turn off</button></div>'
-        : '<button class="btn sm pri" data-act="pinSetup">Set a 4-digit PIN</button>'}
+      ${S.settings.pinHash ? '<div class="grid2"><button class="btn sm" data-act="pinChange">Change PIN</button><button class="btn sm" data-act="pinOff">Turn Off</button></div>'
+        : '<button class="btn sm pri" data-act="pinSetup">Set 4-Digit PIN</button>'}
       <span class="small">Asked when the app opens and after 1 minute in the background. If you forget the PIN, the only way in is to erase all data — keep a backup.</span>
     </div>
 
-    <button class="btn danger" data-act="eraseAll">Erase all data on this phone</button>
+    <button class="btn danger" data-act="eraseAll">Erase All Data on This Phone</button>
     <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:12px">${LOGO(56)}
     <span class="small" style="text-align:center;color:#3F3F3A;font-weight:600">${CREDIT}</span>
     <span class="small" style="text-align:center">${esc(APP_NAME)} · v${APP_VERSION} · data stored only on this phone</span></div>
@@ -965,7 +965,7 @@ function classesSheet() {
     <label class="field"><span>Group</span><select id="fGp">${['A', 'B'].map((g) => `<option value="${g}" ${g === f.gp ? 'selected' : ''}>Gp ${g}</option>`).join('')}</select></label></div>
     <datalist id="courseList">${courses.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
     <span class="small" id="fHint">${classHint(f)}</span>
-    <button class="btn pri" data-act="addClass">Add class</button>
+    <button class="btn pri" data-act="addClass">Add Class</button>
     </div><button class="btn" data-act="closeSheet">Close</button>`;
 }
 
@@ -978,7 +978,7 @@ function editSheet(id) {
     <label class="field"><span>Punishment</span><select id="ePun">${S.settings.puns.filter((p) => !p.hidden || p.id === e.pun).map((p) => `<option value="${p.id}" ${p.id === e.pun ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}<option value="" ${!e.pun ? 'selected' : ''}>Not decided</option></select></label>
     <label class="field"><span>Status</span><select id="eStatus"><option value="done" ${e.status === 'done' ? 'selected' : ''}>Done</option><option value="pending" ${e.status === 'pending' ? 'selected' : ''}>Pending</option></select></label>
     <label class="field"><span>Note</span><textarea id="eNote">${esc(e.note || '')}</textarea></label>
-    <button class="btn pri" data-act="saveEdit" data-arg="${e.id}">Save changes</button>
+    <button class="btn pri" data-act="saveEdit" data-arg="${e.id}">Save Changes</button>
     <div class="grid2"><button class="btn danger" data-act="delEntry" data-arg="${e.id}">Delete</button><button class="btn" data-act="closeSheet">Cancel</button></div>`;
 }
 
@@ -1000,8 +1000,8 @@ function cadetSheet() {
     <datalist id="plList">${pls.map((v) => `<option value="${esc(v)}">`).join('')}</datalist>
     <datalist id="cCourseList">${courses.map((v) => `<option value="${esc(v)}">`).join('')}</datalist>
     ${x ? `<label class="check"><input type="checkbox" id="cActive" ${x.active ? 'checked' : ''}><span>In class (untick to remove — e.g. relegated / withdrawn; history is kept)</span></label>` : ''}
-    <button class="btn pri" data-act="saveCadet">${x ? 'Save changes' : 'Save'}</button>
-    ${x ? '' : '<button class="btn" data-act="saveCadet" data-arg="more">Save &amp; add another</button>'}
+    <button class="btn pri" data-act="saveCadet">${x ? 'Save Changes' : 'Save'}</button>
+    ${x ? '' : '<button class="btn" data-act="saveCadet" data-arg="more">Save &amp; Add Another</button>'}
     <button class="btn" data-act="closeSheet">Cancel</button>`;
 }
 
@@ -1024,16 +1024,16 @@ function newTermSheet() {
   const t = curTerm(), lc = liveClasses();
   const pend = S.entries.filter((e) => e.status === 'pending').length;
   const d = daysSince(S.settings.lastBackup);
-  return `<h2>Start new term</h2>
+  return `<h2>Start New Term</h2>
     <span class="small">Finishing: <b style="color:#1C1C1A">${esc(t.name)}</b> (from ${esc(fmtD(t.start))}) · ${lc.length} class${lc.length === 1 ? '' : 'es'} · ${S.entries.filter((e) => e.ts >= termTs()).length} records</span>
     <div class="${d === 0 ? 'hint ok' : 'warn'}" style="display:flex;align-items:center;gap:10px"><span style="flex:1">${d === 0 ? 'Backup saved today.' : 'Step 1: save a backup of the finished term first.'}</span>
-      <button class="btn sm" style="flex:none" data-act="backup" data-arg="save">Back up</button></div>
+      <button class="btn sm" style="flex:none" data-act="backup" data-arg="save">Back Up</button></div>
     <label class="field"><span>New term starts on</span><input type="date" id="ntStart" value="${nextTermStart(t)}"></label>
     <span class="small">Name (automatic): <b id="ntNameShow" style="font-size:16px;color:#1C1C1A">${esc(seasonOf(nextTermStart(t)).name)}</b></span>
     <label class="check"><input type="checkbox" id="ntArchive" checked><span>Move the current ${lc.length} class${lc.length === 1 ? '' : 'es'} to “Old classes”. You then add this term's classes fresh. Old records stay in history and reports.</span></label>
     ${pend ? `<label class="check"><input type="checkbox" id="ntClose"><span>Mark the ${pend} pending action${pend > 1 ? 's' : ''} as done (leave unticked to keep them on the Pending tab).</span></label>` : ''}
     <span class="small">Cadets are not deleted. Counts (“1st / 2nd time”) restart from the new date; earlier observations show as “previous term” in each cadet's history.</span>
-    <button class="btn pri" data-act="startNewTerm">Start new term</button><button class="btn" data-act="closeSheet">Cancel</button>`;
+    <button class="btn pri" data-act="startNewTerm">Start New Term</button><button class="btn" data-act="closeSheet">Cancel</button>`;
 }
 
 function listsSheet() {
@@ -1054,8 +1054,8 @@ function listsSheet() {
     <button class="${tab === 'pun' ? 'on' : ''}" style="${tab === 'pun' ? '' : 'color:#3F3F3A'}" data-act="listTab" data-arg="pun">Punishments · ${pv.length}</button></div>
     <span class="small">Tap to rename or delete. Arrows set the order of the buttons on the record screen.${tab === 'pun' ? ' “Decide later” is always available.' : ''}</span>
     <div class="list">${rows || '<div class="empty"><span>None yet.</span></div>'}</div>
-    <button class="btn pri" data-act="editItem" data-arg="new">+ Add ${tab === 'obs' ? 'observation' : 'punishment'}</button>
-    <button class="btn sm" data-act="restoreLists">Restore the original ${tab === 'obs' ? 'observations' : 'punishments'}</button>
+    <button class="btn pri" data-act="editItem" data-arg="new">+ Add ${tab === 'obs' ? 'Observation' : 'Punishment'}</button>
+    <button class="btn sm" data-act="restoreLists">Restore Original ${tab === 'obs' ? 'Observations' : 'Punishments'}</button>
     <span class="small">Changes apply to new records. Renaming an observation also renames it in past records. Deleted items disappear from the buttons, but records already made keep them in history and reports.</span>
     <button class="btn" data-act="closeSheet">Close</button>`;
 }
@@ -1065,7 +1065,7 @@ function itemSheet() {
   if (kind === 'obs') {
     const v = isNew ? '' : S.settings.obs[+key];
     return `<h2>${isNew ? 'Add observation' : 'Edit observation'}</h2>
-      <label class="field"><span>Observation</span><input type="text" id="iName" value="${esc(v)}" placeholder="e.g. Mobile phone in class" maxlength="60"></label>
+      <label class="field"><span>Observation</span><input type="text" id="iName" value="${esc(v)}" placeholder="e.g. Missing from a class" maxlength="60"></label>
       <button class="btn pri" data-act="saveItem">Save</button>
       <div class="grid2">${isNew ? '' : '<button class="btn danger" data-act="delItem">Delete</button>'}<button class="btn" data-act="closeSheet" style="${isNew ? 'grid-column:1/-1' : ''}">Cancel</button></div>`;
   }
@@ -1084,7 +1084,7 @@ function archivedSheet() {
     ${arch.map((c) => { const n = S.entries.filter((e) => e.classId === c.id).length;
       return `<div class="card" style="padding:12px 14px;display:flex;align-items:center;gap:10px"><span class="grow"><span class="nm">${esc(className(c))}</span>
       <span class="sub">${esc((termOf(c) || {}).name || '')} · ${n} record${n === 1 ? '' : 's'}</span></span>
-      <button class="btn sm" style="flex:none" data-act="unarchive" data-arg="${c.id}">Use again</button></div>`; }).join('')}
+      <button class="btn sm" style="flex:none" data-act="unarchive" data-arg="${c.id}">Use Again</button></div>`; }).join('')}
     <button class="btn" data-act="closeSheet">Close</button>`;
 }
 
@@ -1281,6 +1281,7 @@ function goBack() {
 }
 
 const A = {
+  link() { /* let the phone open the link; stops the tap reaching the card behind it */ },
   dlgOk() {
     const d = U.dialog;
     if (d.input && norm($('#dlgInput').value).toUpperCase() !== d.input) { d.err = `Please type ${d.input} exactly.`; renderDialog(); return; }
@@ -1612,7 +1613,7 @@ const A = {
     else { L.mode = 'set1'; L.pin = ''; L.first = ''; L.msg = 'PINs did not match — try again'; render(); }
   },
   async forgotPin() {
-    if (!(await uiConfirm('Without the PIN, the only way in is to erase all data on this phone. You can restore a backup afterwards.', { title: 'Forgot PIN?', ok: 'Erase all data', danger: true, input: 'ERASE' }))) return;
+    if (!(await uiConfirm('Without the PIN, the only way in is to erase all data on this phone. You can restore a backup afterwards.', { title: 'Forgot PIN?', ok: 'Erase All Data', danger: true, input: 'ERASE' }))) return;
     S = freshState(); await save(); U.lock = null; U.view = 'record'; render();
   },
   async eraseAll() {
@@ -1710,8 +1711,8 @@ function installCard() {
   if (isInstalled()) return '';
   return `<span class="label">Install</span><div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
     <span style="font-size:14px;font-weight:600">Put ${esc(APP_NAME)} on your home screen</span>
-    ${installEvt ? '<button class="btn sm pri" data-act="install">Install app</button>'
-      : '<span class="small">In Chrome tap <b>⋮</b> (top right) → <b>Install app</b> or <b>Add to Home screen</b>. It then opens full-screen and works offline.</span>'}</div>`;
+    ${installEvt ? '<button class="btn sm pri" data-act="install">Install App</button>'
+      : '<span class="small">In Chrome tap <b>⋮</b> (top right) → <b>Install App</b> or <b>Add to Home screen</b>. It then opens full-screen and works offline.</span>'}</div>`;
 }
 
 let hiddenAt = 0;
