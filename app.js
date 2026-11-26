@@ -2,7 +2,7 @@
 /* GC's Obsn - PMA (cadet observations)
    All data stays on this device (IndexedDB). No network calls except loading the app itself. */
 
-const APP_VERSION = '0.7.4';
+const APP_VERSION = '0.7.5';
 const APP_NAME = "GC's Obsn - PMA";
 const FILE_TAG = 'GCs_Obsn_PMA';
 const CREDIT = 'Developed by Maj Ahmad Mujtaba, AEC (Cptr Sc)';
@@ -339,6 +339,7 @@ function viewProfile() {
       <div class="card" style="padding:6px;display:flex;flex-direction:column;gap:2px">${byType.length ? byType.map(([o, n]) => filterBar('histObs', o, o, n, max, hf)).join('')
         : '<span class="small" style="padding:8px">Nothing this term. Tap “All time” to see earlier terms.</span>'}</div>` : ''}
     <span class="label">Comds</span><div class="card">${comdRow('PL COMD · ' + esc(x.pl), pl)}${comdRow('TERM COMD · ' + esc(x.course), tc)}</div>
+    ${all.length ? `<button class="btn" data-act="openGcRpt" data-arg="${x.gc}">Share or save this GC's report</button>` : ''}
     <div class="between"><span class="label">History${hf ? ' · ' + esc(hf) : ''}</span>${hf ? '<button class="chip sm" data-act="histObs" data-arg="">Clear ✕</button>' : '<span class="small">Tap an entry to edit</span>'}</div>
     <div class="list">${all.length ? (shown.length ? shown.map((e) => histHtml(e, e.ts < termTs())).join('') : '<div class="empty"><span>No entries for this filter.</span></div>') : '<div class="empty"><span>No observations recorded.</span></div>'}</div>
     </main>`;
@@ -566,14 +567,32 @@ function rptDefaults(clsId) {
 function rptRange(r) {
   if (r.period === 'month') { const [y, m] = r.month.split('-').map(Number); return [new Date(y, m - 1, 1).getTime(), new Date(y, m, 1).getTime()]; }
   if (r.period === 'range') return [new Date(r.from + 'T00:00:00').getTime(), new Date(r.to + 'T00:00:00').getTime() + 86400000];
+  if (r.period === 'all') return [0, Infinity];
   return [termTs(), Infinity];
 }
 function rptPeriodLabel(r) {
   if (r.period === 'month') { const [y, m] = r.month.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }); }
   if (r.period === 'range') return `${fmtD(r.from)} – ${fmtD(r.to)}`;
+  if (r.period === 'all') return 'All time';
   return `${curTerm().name} (from ${fmtD(curTerm().start)})`;
 }
+// classes a cadet belongs to (same course + group), including old ones
+const cadetClasses = (x) => S.classes.filter((c) => c.course === x.course && c.gp === x.gp);
+function gcData(r) {
+  const [from, to] = rptRange(r), x = S.cadets[r.gc];
+  const es = S.entries.filter((e) => e.gc === r.gc && e.ts >= from && e.ts < to && (r.cls === 'all' || e.classId === r.cls)).sort((a, b) => a.ts - b.ts);
+  const sum = {}; es.forEach((e) => { sum[e.obs] = (sum[e.obs] || 0) + 1; });
+  const summary = Object.entries(sum).map(([o, n]) => ({ o, n })).sort((a, b) => b.n - a.n || a.o.localeCompare(b.o));
+  const c = S.classes.find((y) => y.id === r.cls), cname = c ? `${c.subject} ${c.course} Gp ${c.gp}` : 'All classes';
+  const clsOf = (e) => { const k = S.classes.find((y) => y.id === e.classId); return k ? k.subject : ''; };
+  const name = x.name + (x.tag ? ` (${x.tag})` : '');
+  return { single: true, x, es, summary, cname, name, showCls: r.cls === 'all',
+    items: es.map((e) => ({ d: new Date(e.ts).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }), dm: fmtDM(e.ts), o: e.obs, c: clsOf(e) })),
+    short: `GC ${x.gc} ${name}`, title: `OBSERVATIONS – GC ${x.gc} ${name}`.toUpperCase(), period: rptPeriodLabel(r),
+    tag: `GC${x.gc}_${c ? c.subject + '_' + c.course : 'AllClasses'}_${r.period === 'month' ? r.month : r.period === 'range' ? r.from + '_to_' + r.to : r.period === 'all' ? 'AllTime' : curTerm().name}`.replace(/[^A-Za-z0-9-]+/g, '_') };
+}
 function rptData(r) {
+  if (r.gc) return gcData(r);
   const [from, to] = rptRange(r);
   const allPl = r.pl === '*';
   const es = S.entries.filter((e) => e.ts >= from && e.ts < to && (r.cls === 'all' || e.classId === r.cls) && S.cadets[e.gc] && (allPl || S.cadets[e.gc].pl === r.pl));
@@ -605,7 +624,9 @@ function rptLayout(d) {
   const newPage = () => { ops = []; pages.push(ops); y = MT; };
   newPage();
   wrap(d.title, F.t, CW).forEach((l) => { ops.push({ k: 'text', t: l, f: F.t, x: ML, y: y + 13, u: true }); y += 19; });
-  wrap(`Period: ${d.period} · GCs with observations: ${d.rows.length} · Total observations: ${d.es.length}`, F.s, CW).forEach((l) => { ops.push({ k: 'text', t: l, f: F.s, x: ML, y: y + 10 }); y += 14; });
+  const sub = d.single ? `${d.x.pl} · ${d.x.course} Gp ${d.x.gp}${d.x.appt ? ' · ' + d.x.appt : ''} · ${d.cname} · Period: ${d.period} · Total observations: ${d.es.length}`
+    : `Period: ${d.period} · GCs with observations: ${d.rows.length} · Total observations: ${d.es.length}`;
+  wrap(sub, F.s, CW).forEach((l) => { ops.push({ k: 'text', t: l, f: F.s, x: ML, y: y + 10 }); y += 14; });
   y += 12;
   const table = (heading, cols, rows) => {
     const grid = (yy, h) => { ops.push({ k: 'box', x: ML, y: yy, w: CW, h }); let x = ML; cols.slice(0, -1).forEach((c) => { x += c.w; ops.push({ k: 'line', x1: x, y1: yy, x2: x, y2: yy + h }); }); };
@@ -636,6 +657,13 @@ function rptLayout(d) {
     });
     y += 20;
   };
+  if (d.single) {
+    const s1 = [{ t: 'Ser', w: 34 }, { t: 'Observation', w: CW - 114 }, { t: 'Obsns', w: 80, a: 'c' }];
+    table('1.  Summary by Observation', s1, d.summary.map((s, i) => ({ cells: [[String(i + 1)], wrap(s.o, F.td, s1[1].w - 12), [String(s.n)]] })));
+    const s2 = d.showCls ? [{ t: 'Ser', w: 34 }, { t: 'Date', w: 84 }, { t: 'Observation', w: CW - 238 }, { t: 'Class', w: 120 }]
+      : [{ t: 'Ser', w: 34 }, { t: 'Date', w: 84 }, { t: 'Observation', w: CW - 118 }];
+    table('2.  Details', s2, d.items.map((it, i) => ({ cells: [[String(i + 1)], [it.d], wrap(it.o, F.td, s2[2].w - 12)].concat(d.showCls ? [wrap(it.c, F.td, 108)] : []) })));
+  } else {
   const c1 = [{ t: 'Ser', w: 34 }, { t: 'Observation', w: CW - 184 }, { t: 'Obsns', w: 80, a: 'c' }, { t: 'GCs', w: 70, a: 'c' }];
   table('1.  Summary by Observation', c1, d.summary.map((s, i) => ({ cells: [[String(i + 1)], wrap(s.o, F.td, c1[1].w - 12), [String(s.n)], [String(s.g)]] })));
   const c2 = [{ t: 'Ser', w: 34 }, { t: 'GC No', w: 52 }, { t: 'Name', w: CW - 360 }, { t: 'Total', w: 44, a: 'c' }, { t: 'Date – Observation', w: 230 }];
@@ -643,6 +671,7 @@ function rptLayout(d) {
     bold: [3], contd: [[], [String(r.gc)], ['(contd)'], []],
     cells: [[String(i + 1)], [String(r.gc)], wrap(r.name, F.td, c2[2].w - 12), [String(r.items.length)], r.items.flatMap((it) => wrap(`${it.d} – ${it.o}`, F.td, c2[4].w - 12))]
   })));
+  }
   const N = pages.length, gen = `${APP_NAME} · generated ${fmtD(today())}`;
   pages.forEach((p, i) => { p.push({ k: 'text', t: gen, f: F.f, x: ML, y: PH - 30, color: '#555' }); p.push({ k: 'text', t: `Page ${i + 1} of ${N}`, f: F.f, x: PW - ML, y: PH - 30, a: 'r', color: '#555' }); });
   return pages;
@@ -695,6 +724,15 @@ async function rptPdfFile(d) {
   return new File([new Blob(parts, { type: 'application/pdf' })], `${FILE_TAG}_${d.tag}.pdf`, { type: 'application/pdf' });
 }
 function rptText(d) {
+  if (d.single) {
+    const x = d.x, L = [`*OBSERVATIONS – GC ${x.gc}*`, `${d.name}`, `${x.pl} · ${x.course} Gp ${x.gp}${x.appt ? ' · ' + x.appt : ''}`, `${d.cname} · Period: ${d.period}`, `Total: *${d.es.length} obsns*`];
+    L.push('', '──────────────', '*SUMMARY*', '');
+    d.summary.forEach((s) => L.push(`▪ ${s.o} – *${s.n}*`));
+    L.push('', '──────────────', '*DETAILS*', '');
+    d.items.forEach((it, i) => L.push(`${i + 1}) ${it.dm} – ${it.o}${d.showCls && it.c ? ` (${it.c})` : ''}`));
+    L.push('', `_${APP_NAME}_`);
+    return L.join('\n');
+  }
   const L = [];
   L.push(`*OBSERVATIONS – ${d.plName}*`, d.cname, `Period: ${d.period}`, `Total: *${d.es.length} obsns* · *${d.rows.length} GCs*`);
   L.push('', '──────────────', '*SUMMARY*', '');
@@ -721,23 +759,32 @@ const RFMT_NOTE = {
   xlsx: 'Full details for your own records, including punishments, status and notes.'
 };
 
+function gcRptHead(r) {
+  const x = S.cadets[r.gc], cls = cadetClasses(x);
+  if (r.cls !== 'all' && !cls.some((c) => c.id === r.cls)) r.cls = 'all';
+  return `<h2>GC report</h2>
+    <div class="card" style="padding:10px 12px"><b>GC ${x.gc} · ${esc(x.name)}</b><br><span class="small">${esc(x.pl)} · ${esc(x.course)} Gp ${esc(x.gp)}</span></div>
+    <label class="field"><span>Class</span><select id="rClass"><option value="all" ${r.cls === 'all' ? 'selected' : ''}>All classes</option>
+      ${cls.map((c) => `<option value="${c.id}" ${r.cls === c.id ? 'selected' : ''}>${esc(className(c))}${c.archived ? ' (old)' : ''}</option>`).join('')}</select></label>`;
+}
+
 function plRptSheet() {
-  const r = U.sheet.r, pls = rptPls(r.cls);
-  if (r.pl !== '*' && !pls.includes(r.pl)) r.pl = pls[0] || '';
+  const r = U.sheet.r, pls = r.gc ? [] : rptPls(r.cls);
+  if (!r.gc && r.pl !== '*' && !pls.includes(r.pl)) r.pl = pls[0] || '';
   const allPl = r.pl === '*', fmt = r.fmt || 'png';
-  const d = r.pl ? rptData(r) : null, ok = d && d.es.length;
+  const d = r.gc || r.pl ? rptData(r) : null, ok = d && d.es.length;
   const seg = (k, l) => `<button class="${r.period === k ? 'on' : ''}" style="${r.period === k ? '' : 'color:#3F3F3A'}" data-act="rPer" data-arg="${k}">${l}</button>`;
-  return `<h2>Platoon report</h2>
+  return `${r.gc ? gcRptHead(r) : `<h2>Platoon report</h2>
     <label class="field"><span>Class</span><select id="rClass">${liveClasses().map((c) => `<option value="${c.id}" ${r.cls === c.id ? 'selected' : ''}>${esc(className(c))}</option>`).join('')}
       <option value="all" ${r.cls === 'all' ? 'selected' : ''}>All my classes</option></select></label>
     <div class="field"><span>Platoon</span><div class="chips">${pls.length ? pls.map((p) => `<button class="chip ${r.pl === p ? 'on' : ''}" data-act="rPl" data-arg="${esc(p)}">${esc(p)}</button>`).join('')
-      + (pls.length > 1 ? `<button class="chip ${allPl ? 'on' : ''}" data-act="rPl" data-arg="*">All platoons</button>` : '') : '<span class="small">No cadets in this class.</span>'}</div></div>
-    <div class="field"><span>Period</span><div class="seg" style="background:#EFEDE5">${seg('term', 'Term')}${seg('month', 'Month')}${seg('range', 'Date range')}</div>
+      + (pls.length > 1 ? `<button class="chip ${allPl ? 'on' : ''}" data-act="rPl" data-arg="*">All platoons</button>` : '') : '<span class="small">No cadets in this class.</span>'}</div></div>`}
+    <div class="field"><span>Period</span><div class="seg" style="background:#EFEDE5">${seg('term', 'Term')}${seg('month', 'Month')}${seg('range', 'Range')}${r.gc ? seg('all', 'All') : ''}</div>
       ${r.period === 'month' ? `<input type="month" id="rMonth" value="${esc(r.month)}">` : ''}
       ${r.period === 'range' ? `<div class="grid2"><label class="field"><span>From</span><input type="date" id="rFrom" value="${esc(r.from)}"></label><label class="field"><span>To</span><input type="date" id="rTo" value="${esc(r.to)}"></label></div>` : ''}
       ${r.period === 'term' ? `<span class="small">${esc(curTerm().name)}, from ${esc(fmtD(curTerm().start))}</span>` : ''}</div>
-    <div class="${ok ? 'hint ok' : 'warn'}" style="flex-direction:column;align-items:flex-start;gap:2px"><b>${ok ? `${d.rows.length} GC${d.rows.length > 1 ? 's' : ''} with observations · ${d.es.length} observation${d.es.length > 1 ? 's' : ''}` : 'No observations for this selection'}</b>
-      <span class="small" style="color:inherit">Only GCs with observations are included · no punishments</span></div>
+    <div class="${ok ? 'hint ok' : 'warn'}" style="flex-direction:column;align-items:flex-start;gap:2px"><b>${!ok ? 'No observations for this selection' : r.gc ? `${d.es.length} observation${d.es.length > 1 ? 's' : ''}` : `${d.rows.length} GC${d.rows.length > 1 ? 's' : ''} with observations · ${d.es.length} observation${d.es.length > 1 ? 's' : ''}`}</b>
+      <span class="small" style="color:inherit">${r.gc ? 'Observations with dates · no punishments (Excel has full details)' : 'Only GCs with observations are included · no punishments'}</span></div>
     <span class="label">Format</span>
     <div class="seg" style="background:#EFEDE5">${RFMT.map(([k, l]) => `<button class="${fmt === k ? 'on' : ''}" style="${fmt === k ? '' : 'color:#3F3F3A'}" data-act="rFmt" data-arg="${k}">${l}</button>`).join('')}</div>
     <span class="small">${RFMT_NOTE[fmt]}</span>
@@ -1411,6 +1458,7 @@ const A = {
     if (r && r.outcome === 'dismissed') showToast('Not installed', 'Settings → Install, any time', null);
   },
   openPlRpt(id) { U.sheet = { type: 'plRpt', r: rptDefaults(id) }; pushNav(); render(); },
+  openGcRpt(gc) { const t = today(); U.sheet = { type: 'plRpt', r: { gc: +gc, cls: 'all', period: 'term', month: t.slice(0, 7), from: t.slice(0, 8) + '01', to: t } }; pushNav(); render(); },
   rPl(p) { U.sheet.r.pl = p; U.sheet.prev = null; render(); },
   rPer(k) { U.sheet.r.period = k; U.sheet.prev = null; render(); },
   async rPreview() {
